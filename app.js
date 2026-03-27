@@ -10,14 +10,30 @@ const DEFAULT_FOLDERS = [
 const FOLDERS_KEY = "bryantos_folders";
 const CURRENT_FOLDER_KEY = "bryantos_current_folder";
 
+const FOLDER_COLORS = {
+  "Personal": "#22c55e",
+  "Bryant Digital": "#3b82f6",
+  "Cleaning": "#f97316",
+  "Construction": "#eab308",
+  "AI Photo Studio": "#a855f7",
+  "MultiPost": "#ec4899"
+};
+
 function showSection(sectionId) {
   const sections = document.querySelectorAll(".section");
   sections.forEach((section) => section.classList.remove("active"));
 
   const selectedSection = document.getElementById(sectionId);
-  if (selectedSection) {
-    selectedSection.classList.add("active");
+
+  if (!selectedSection) {
+    console.error(`Section not found: ${sectionId}`);
+    const dashboard = document.getElementById("dashboard");
+    if (dashboard) dashboard.classList.add("active");
+    return;
   }
+
+  selectedSection.classList.add("active");
+  runSearch();
 }
 
 function getStoredData(key, fallback = []) {
@@ -98,6 +114,12 @@ function updateFolderLabels() {
   });
 }
 
+function applyFolderColor() {
+  const folder = getCurrentFolder();
+  const color = FOLDER_COLORS[folder] || "#38bdf8";
+  document.documentElement.style.setProperty("--accent", color);
+}
+
 function addFolder() {
   const input = document.getElementById("newFolderInput");
   const name = input.value.trim();
@@ -169,6 +191,7 @@ function deleteItemsForFolder(storageKey, folderName) {
 function refreshFolderState() {
   renderFolderDropdown();
   updateFolderLabels();
+  applyFolderColor();
   loadNotes();
   renderPhotos();
   renderMail();
@@ -178,6 +201,7 @@ function refreshFolderState() {
   renderCodes();
   renderEvents();
   renderContacts();
+  runSearch();
 }
 
 function getNotesKey(folderName) {
@@ -187,6 +211,42 @@ function getNotesKey(folderName) {
 function getFilteredItems(key) {
   const currentFolder = getCurrentFolder();
   return getStoredData(key, []).filter((item) => item.folder === currentFolder);
+}
+
+function buildFolderOptions(selectedFolder) {
+  return getFolders()
+    .map((folder) => `
+      <option value="${escapeAttribute(folder)}" ${folder === selectedFolder ? "selected" : ""}>
+        ${escapeHtml(folder)}
+      </option>
+    `)
+    .join("");
+}
+
+function moveItem(storageKey, id, newFolder) {
+  const items = getStoredData(storageKey, []);
+  const updated = items.map((item) =>
+    item.id === id ? { ...item, folder: newFolder } : item
+  );
+
+  setStoredData(storageKey, updated);
+  refreshFolderState();
+}
+
+function runSearch() {
+  const searchInput = document.getElementById("globalSearch");
+  if (!searchInput) return;
+
+  const query = searchInput.value.trim().toLowerCase();
+  const activeSection = document.querySelector(".section.active");
+  if (!activeSection) return;
+
+  const searchableItems = activeSection.querySelectorAll(".list-item, .photo-item");
+
+  searchableItems.forEach((item) => {
+    const text = item.innerText.toLowerCase();
+    item.style.display = text.includes(query) ? "" : "none";
+  });
 }
 
 function saveNotes() {
@@ -215,7 +275,7 @@ function addPhoto(event) {
 
   const reader = new FileReader();
   reader.onload = function (e) {
-    const items = getStoredData("bryantos_photos");
+    const items = getStoredData("bryantos_photos", []);
     items.unshift({
       id: Date.now(),
       folder: getCurrentFolder(),
@@ -235,7 +295,7 @@ function addPhoto(event) {
 }
 
 function deletePhoto(id) {
-  const items = getStoredData("bryantos_photos").filter((item) => item.id !== id);
+  const items = getStoredData("bryantos_photos", []).filter((item) => item.id !== id);
   setStoredData("bryantos_photos", items);
   renderPhotos();
 }
@@ -255,12 +315,19 @@ function renderPhotos() {
         <img src="${item.data}" alt="${escapeAttribute(item.name)}" class="photo-preview">
         <div class="photo-meta">
           <span>${escapeHtml(item.name)}</span>
-          <button onclick="deletePhoto(${item.id})">Delete</button>
+          <div class="list-actions">
+            <select onchange="moveItem('bryantos_photos', ${item.id}, this.value)">
+              ${buildFolderOptions(item.folder)}
+            </select>
+            <button onclick="deletePhoto(${item.id})">Delete</button>
+          </div>
         </div>
       </div>
     `;
     list.appendChild(li);
   });
+
+  runSearch();
 }
 
 /* -------------------------
@@ -271,7 +338,7 @@ function addMail() {
   const value = input.value.trim();
   if (!value) return;
 
-  const items = getStoredData("bryantos_mail");
+  const items = getStoredData("bryantos_mail", []);
   items.unshift({
     id: Date.now(),
     folder: getCurrentFolder(),
@@ -284,7 +351,7 @@ function addMail() {
 }
 
 function deleteMail(id) {
-  const items = getStoredData("bryantos_mail").filter((item) => item.id !== id);
+  const items = getStoredData("bryantos_mail", []).filter((item) => item.id !== id);
   setStoredData("bryantos_mail", items);
   renderMail();
 }
@@ -300,10 +367,17 @@ function renderMail() {
     li.className = "list-item";
     li.innerHTML = `
       <span>${escapeHtml(item.text)}</span>
-      <button onclick="deleteMail(${item.id})">Delete</button>
+      <div class="list-actions">
+        <select onchange="moveItem('bryantos_mail', ${item.id}, this.value)">
+          ${buildFolderOptions(item.folder)}
+        </select>
+        <button onclick="deleteMail(${item.id})">Delete</button>
+      </div>
     `;
     list.appendChild(li);
   });
+
+  runSearch();
 }
 
 /* -------------------------
@@ -318,7 +392,7 @@ function addMoney() {
 
   if (!desc || !amount) return;
 
-  const items = getStoredData("bryantos_money");
+  const items = getStoredData("bryantos_money", []);
   items.unshift({
     id: Date.now(),
     folder: getCurrentFolder(),
@@ -333,7 +407,7 @@ function addMoney() {
 }
 
 function deleteMoney(id) {
-  const items = getStoredData("bryantos_money").filter((item) => item.id !== id);
+  const items = getStoredData("bryantos_money", []).filter((item) => item.id !== id);
   setStoredData("bryantos_money", items);
   renderMoney();
 }
@@ -355,10 +429,17 @@ function renderMoney() {
         <strong>${escapeHtml(item.desc)}</strong> -
         <span class="${amountClass}">${escapeHtml(item.amount)}</span>
       </span>
-      <button onclick="deleteMoney(${item.id})">Delete</button>
+      <div class="list-actions">
+        <select onchange="moveItem('bryantos_money', ${item.id}, this.value)">
+          ${buildFolderOptions(item.folder)}
+        </select>
+        <button onclick="deleteMoney(${item.id})">Delete</button>
+      </div>
     `;
     list.appendChild(li);
   });
+
+  runSearch();
 }
 
 /* -------------------------
@@ -369,7 +450,7 @@ function addBill() {
   const value = input.value.trim();
   if (!value) return;
 
-  const items = getStoredData("bryantos_bills");
+  const items = getStoredData("bryantos_bills", []);
   items.unshift({
     id: Date.now(),
     folder: getCurrentFolder(),
@@ -383,7 +464,7 @@ function addBill() {
 }
 
 function toggleBill(id) {
-  const items = getStoredData("bryantos_bills");
+  const items = getStoredData("bryantos_bills", []);
   const updated = items.map((item) =>
     item.id === id ? { ...item, paid: !item.paid } : item
   );
@@ -393,7 +474,7 @@ function toggleBill(id) {
 }
 
 function deleteBill(id) {
-  const items = getStoredData("bryantos_bills").filter((item) => item.id !== id);
+  const items = getStoredData("bryantos_bills", []).filter((item) => item.id !== id);
   setStoredData("bryantos_bills", items);
   renderBills();
 }
@@ -416,12 +497,17 @@ function renderBills() {
         <span class="${statusClass}">${statusText}</span>
       </span>
       <div class="list-actions">
+        <select onchange="moveItem('bryantos_bills', ${item.id}, this.value)">
+          ${buildFolderOptions(item.folder)}
+        </select>
         <button onclick="toggleBill(${item.id})">Toggle</button>
         <button onclick="deleteBill(${item.id})">Delete</button>
       </div>
     `;
     list.appendChild(li);
   });
+
+  runSearch();
 }
 
 /* -------------------------
@@ -432,7 +518,7 @@ function addLink() {
   const value = input.value.trim();
   if (!value) return;
 
-  const items = getStoredData("bryantos_links");
+  const items = getStoredData("bryantos_links", []);
   items.unshift({
     id: Date.now(),
     folder: getCurrentFolder(),
@@ -445,7 +531,7 @@ function addLink() {
 }
 
 function deleteLink(id) {
-  const items = getStoredData("bryantos_links").filter((item) => item.id !== id);
+  const items = getStoredData("bryantos_links", []).filter((item) => item.id !== id);
   setStoredData("bryantos_links", items);
   renderLinks();
 }
@@ -470,10 +556,17 @@ function renderLinks() {
 
     li.innerHTML = `
       <span>${content}</span>
-      <button onclick="deleteLink(${item.id})">Delete</button>
+      <div class="list-actions">
+        <select onchange="moveItem('bryantos_links', ${item.id}, this.value)">
+          ${buildFolderOptions(item.folder)}
+        </select>
+        <button onclick="deleteLink(${item.id})">Delete</button>
+      </div>
     `;
     list.appendChild(li);
   });
+
+  runSearch();
 }
 
 /* -------------------------
@@ -484,7 +577,7 @@ function addCode() {
   const value = input.value.trim();
   if (!value) return;
 
-  const items = getStoredData("bryantos_codes");
+  const items = getStoredData("bryantos_codes", []);
   items.unshift({
     id: Date.now(),
     folder: getCurrentFolder(),
@@ -497,7 +590,7 @@ function addCode() {
 }
 
 function deleteCode(id) {
-  const items = getStoredData("bryantos_codes").filter((item) => item.id !== id);
+  const items = getStoredData("bryantos_codes", []).filter((item) => item.id !== id);
   setStoredData("bryantos_codes", items);
   renderCodes();
 }
@@ -513,10 +606,17 @@ function renderCodes() {
     li.className = "list-item";
     li.innerHTML = `
       <span>${escapeHtml(item.text)}</span>
-      <button onclick="deleteCode(${item.id})">Delete</button>
+      <div class="list-actions">
+        <select onchange="moveItem('bryantos_codes', ${item.id}, this.value)">
+          ${buildFolderOptions(item.folder)}
+        </select>
+        <button onclick="deleteCode(${item.id})">Delete</button>
+      </div>
     `;
     list.appendChild(li);
   });
+
+  runSearch();
 }
 
 /* -------------------------
@@ -531,7 +631,7 @@ function addEvent() {
 
   if (!date || !text) return;
 
-  const items = getStoredData("bryantos_events");
+  const items = getStoredData("bryantos_events", []);
   items.unshift({
     id: Date.now(),
     folder: getCurrentFolder(),
@@ -546,7 +646,7 @@ function addEvent() {
 }
 
 function deleteEvent(id) {
-  const items = getStoredData("bryantos_events").filter((item) => item.id !== id);
+  const items = getStoredData("bryantos_events", []).filter((item) => item.id !== id);
   setStoredData("bryantos_events", items);
   renderEvents();
 }
@@ -562,10 +662,17 @@ function renderEvents() {
     li.className = "list-item";
     li.innerHTML = `
       <span><strong>${escapeHtml(item.date)}</strong> - ${escapeHtml(item.text)}</span>
-      <button onclick="deleteEvent(${item.id})">Delete</button>
+      <div class="list-actions">
+        <select onchange="moveItem('bryantos_events', ${item.id}, this.value)">
+          ${buildFolderOptions(item.folder)}
+        </select>
+        <button onclick="deleteEvent(${item.id})">Delete</button>
+      </div>
     `;
     list.appendChild(li);
   });
+
+  runSearch();
 }
 
 /* -------------------------
@@ -580,7 +687,7 @@ function addContact() {
 
   if (!name || !number) return;
 
-  const items = getStoredData("bryantos_contacts");
+  const items = getStoredData("bryantos_contacts", []);
   items.unshift({
     id: Date.now(),
     folder: getCurrentFolder(),
@@ -595,7 +702,7 @@ function addContact() {
 }
 
 function deleteContact(id) {
-  const items = getStoredData("bryantos_contacts").filter((item) => item.id !== id);
+  const items = getStoredData("bryantos_contacts", []).filter((item) => item.id !== id);
   setStoredData("bryantos_contacts", items);
   renderContacts();
 }
@@ -614,10 +721,17 @@ function renderContacts() {
         <strong>${escapeHtml(item.name)}</strong> -
         <a href="tel:${escapeAttribute(item.number)}">${escapeHtml(item.number)}</a>
       </span>
-      <button onclick="deleteContact(${item.id})">Delete</button>
+      <div class="list-actions">
+        <select onchange="moveItem('bryantos_contacts', ${item.id}, this.value)">
+          ${buildFolderOptions(item.folder)}
+        </select>
+        <button onclick="deleteContact(${item.id})">Delete</button>
+      </div>
     `;
     list.appendChild(li);
   });
+
+  runSearch();
 }
 
 /* -------------------------
@@ -639,6 +753,7 @@ function escapeAttribute(value) {
 document.addEventListener("DOMContentLoaded", () => {
   renderFolderDropdown();
   updateFolderLabels();
+  applyFolderColor();
   loadNotes();
   renderPhotos();
   renderMail();
@@ -648,4 +763,5 @@ document.addEventListener("DOMContentLoaded", () => {
   renderCodes();
   renderEvents();
   renderContacts();
+  runSearch();
 });
