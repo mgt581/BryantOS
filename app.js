@@ -1,3 +1,15 @@
+const DEFAULT_FOLDERS = [
+  "Personal",
+  "Bryant Digital",
+  "Cleaning",
+  "Construction",
+  "AI Photo Studio",
+  "MultiPost"
+];
+
+const FOLDERS_KEY = "bryantos_folders";
+const CURRENT_FOLDER_KEY = "bryantos_current_folder";
+
 function showSection(sectionId) {
   const sections = document.querySelectorAll(".section");
   sections.forEach((section) => section.classList.remove("active"));
@@ -8,9 +20,6 @@ function showSection(sectionId) {
   }
 }
 
-/* -------------------------
-   Local storage helpers
-------------------------- */
 function getStoredData(key, fallback = []) {
   try {
     const data = localStorage.getItem(key);
@@ -29,27 +38,171 @@ function setStoredData(key, value) {
   }
 }
 
-/* -------------------------
-   Notes
-------------------------- */
+function getFolders() {
+  const stored = getStoredData(FOLDERS_KEY, []);
+  if (!Array.isArray(stored) || stored.length === 0) {
+    setStoredData(FOLDERS_KEY, DEFAULT_FOLDERS);
+    return [...DEFAULT_FOLDERS];
+  }
+  return stored;
+}
+
+function getCurrentFolder() {
+  const current = localStorage.getItem(CURRENT_FOLDER_KEY);
+  const folders = getFolders();
+
+  if (current && folders.includes(current)) {
+    return current;
+  }
+
+  const fallback = folders[0];
+  localStorage.setItem(CURRENT_FOLDER_KEY, fallback);
+  return fallback;
+}
+
+function setCurrentFolder(folderName) {
+  localStorage.setItem(CURRENT_FOLDER_KEY, folderName);
+}
+
+function renderFolderDropdown() {
+  const select = document.getElementById("folderSelect");
+  if (!select) return;
+
+  const folders = getFolders();
+  const currentFolder = getCurrentFolder();
+
+  select.innerHTML = folders
+    .map((folder) => `<option value="${escapeAttribute(folder)}">${escapeHtml(folder)}</option>`)
+    .join("");
+
+  select.value = currentFolder;
+}
+
+function updateFolderLabels() {
+  const currentFolder = getCurrentFolder();
+  const labelIds = [
+    "notesFolderLabel",
+    "mailFolderLabel",
+    "moneyFolderLabel",
+    "billsFolderLabel",
+    "linksFolderLabel",
+    "codesFolderLabel",
+    "calendarFolderLabel",
+    "contactsFolderLabel"
+  ];
+
+  labelIds.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = currentFolder;
+  });
+}
+
+function addFolder() {
+  const input = document.getElementById("newFolderInput");
+  const name = input.value.trim();
+
+  if (!name) {
+    alert("Enter a folder name.");
+    return;
+  }
+
+  const folders = getFolders();
+
+  if (folders.some((folder) => folder.toLowerCase() === name.toLowerCase())) {
+    alert("Folder already exists.");
+    return;
+  }
+
+  folders.push(name);
+  setStoredData(FOLDERS_KEY, folders);
+  setCurrentFolder(name);
+  input.value = "";
+
+  refreshFolderState();
+}
+
+function changeFolder() {
+  const select = document.getElementById("folderSelect");
+  if (!select) return;
+
+  setCurrentFolder(select.value);
+  refreshFolderState();
+}
+
+function deleteCurrentFolder() {
+  const currentFolder = getCurrentFolder();
+  const folders = getFolders();
+
+  if (DEFAULT_FOLDERS.includes(currentFolder)) {
+    alert("Default folders cannot be deleted.");
+    return;
+  }
+
+  const confirmed = confirm(`Delete folder "${currentFolder}"? Items in this folder will also be removed.`);
+  if (!confirmed) return;
+
+  const updatedFolders = folders.filter((folder) => folder !== currentFolder);
+  setStoredData(FOLDERS_KEY, updatedFolders);
+
+  deleteItemsForFolder("bryantos_mail", currentFolder);
+  deleteItemsForFolder("bryantos_money", currentFolder);
+  deleteItemsForFolder("bryantos_bills", currentFolder);
+  deleteItemsForFolder("bryantos_links", currentFolder);
+  deleteItemsForFolder("bryantos_codes", currentFolder);
+  deleteItemsForFolder("bryantos_events", currentFolder);
+  deleteItemsForFolder("bryantos_contacts", currentFolder);
+  localStorage.removeItem(getNotesKey(currentFolder));
+
+  const nextFolder = updatedFolders[0] || DEFAULT_FOLDERS[0];
+  setCurrentFolder(nextFolder);
+
+  refreshFolderState();
+}
+
+function deleteItemsForFolder(storageKey, folderName) {
+  const items = getStoredData(storageKey, []).filter((item) => item.folder !== folderName);
+  setStoredData(storageKey, items);
+}
+
+function refreshFolderState() {
+  renderFolderDropdown();
+  updateFolderLabels();
+  loadNotes();
+  renderMail();
+  renderMoney();
+  renderBills();
+  renderLinks();
+  renderCodes();
+  renderEvents();
+  renderContacts();
+}
+
+function getNotesKey(folderName) {
+  return `bryantos_notes_${folderName}`;
+}
+
+function getFilteredItems(key) {
+  const currentFolder = getCurrentFolder();
+  return getStoredData(key, []).filter((item) => item.folder === currentFolder);
+}
+
 function saveNotes() {
   const notesInput = document.getElementById("notesInput");
   const value = notesInput.value.trim();
-  localStorage.setItem("bryantos_notes", value);
-  alert("Notes saved.");
+  const currentFolder = getCurrentFolder();
+  localStorage.setItem(getNotesKey(currentFolder), value);
+  alert(`Notes saved in ${currentFolder}.`);
 }
 
 function loadNotes() {
-  const savedNotes = localStorage.getItem("bryantos_notes") || "";
+  const currentFolder = getCurrentFolder();
+  const savedNotes = localStorage.getItem(getNotesKey(currentFolder)) || "";
   const notesInput = document.getElementById("notesInput");
   if (notesInput) {
     notesInput.value = savedNotes;
   }
 }
 
-/* -------------------------
-   Inbox Vault
-------------------------- */
 function addMail() {
   const input = document.getElementById("mailInput");
   const value = input.value.trim();
@@ -58,6 +211,7 @@ function addMail() {
   const items = getStoredData("bryantos_mail");
   items.unshift({
     id: Date.now(),
+    folder: getCurrentFolder(),
     text: value
   });
 
@@ -74,7 +228,7 @@ function deleteMail(id) {
 
 function renderMail() {
   const list = document.getElementById("mailList");
-  const items = getStoredData("bryantos_mail");
+  const items = getFilteredItems("bryantos_mail");
 
   list.innerHTML = "";
 
@@ -89,9 +243,6 @@ function renderMail() {
   });
 }
 
-/* -------------------------
-   Money Tracker
-------------------------- */
 function addMoney() {
   const descInput = document.getElementById("moneyDesc");
   const amountInput = document.getElementById("moneyAmount");
@@ -104,6 +255,7 @@ function addMoney() {
   const items = getStoredData("bryantos_money");
   items.unshift({
     id: Date.now(),
+    folder: getCurrentFolder(),
     desc,
     amount
   });
@@ -122,7 +274,7 @@ function deleteMoney(id) {
 
 function renderMoney() {
   const list = document.getElementById("moneyList");
-  const items = getStoredData("bryantos_money");
+  const items = getFilteredItems("bryantos_money");
 
   list.innerHTML = "";
 
@@ -143,9 +295,6 @@ function renderMoney() {
   });
 }
 
-/* -------------------------
-   Bills
-------------------------- */
 function addBill() {
   const input = document.getElementById("billInput");
   const value = input.value.trim();
@@ -154,6 +303,7 @@ function addBill() {
   const items = getStoredData("bryantos_bills");
   items.unshift({
     id: Date.now(),
+    folder: getCurrentFolder(),
     text: value,
     paid: false
   });
@@ -181,7 +331,7 @@ function deleteBill(id) {
 
 function renderBills() {
   const list = document.getElementById("billList");
-  const items = getStoredData("bryantos_bills");
+  const items = getFilteredItems("bryantos_bills");
 
   list.innerHTML = "";
 
@@ -205,9 +355,6 @@ function renderBills() {
   });
 }
 
-/* -------------------------
-   Links
-------------------------- */
 function addLink() {
   const input = document.getElementById("linkInput");
   const value = input.value.trim();
@@ -216,6 +363,7 @@ function addLink() {
   const items = getStoredData("bryantos_links");
   items.unshift({
     id: Date.now(),
+    folder: getCurrentFolder(),
     text: value
   });
 
@@ -232,7 +380,7 @@ function deleteLink(id) {
 
 function renderLinks() {
   const list = document.getElementById("linkList");
-  const items = getStoredData("bryantos_links");
+  const items = getFilteredItems("bryantos_links");
 
   list.innerHTML = "";
 
@@ -256,9 +404,6 @@ function renderLinks() {
   });
 }
 
-/* -------------------------
-   Vault
-------------------------- */
 function addCode() {
   const input = document.getElementById("codeInput");
   const value = input.value.trim();
@@ -267,6 +412,7 @@ function addCode() {
   const items = getStoredData("bryantos_codes");
   items.unshift({
     id: Date.now(),
+    folder: getCurrentFolder(),
     text: value
   });
 
@@ -283,7 +429,7 @@ function deleteCode(id) {
 
 function renderCodes() {
   const list = document.getElementById("codeList");
-  const items = getStoredData("bryantos_codes");
+  const items = getFilteredItems("bryantos_codes");
 
   list.innerHTML = "";
 
@@ -298,9 +444,6 @@ function renderCodes() {
   });
 }
 
-/* -------------------------
-   Calendar
-------------------------- */
 function addEvent() {
   const dateInput = document.getElementById("dateInput");
   const eventInput = document.getElementById("eventInput");
@@ -313,6 +456,7 @@ function addEvent() {
   const items = getStoredData("bryantos_events");
   items.unshift({
     id: Date.now(),
+    folder: getCurrentFolder(),
     date,
     text
   });
@@ -331,7 +475,7 @@ function deleteEvent(id) {
 
 function renderEvents() {
   const list = document.getElementById("eventList");
-  const items = getStoredData("bryantos_events");
+  const items = getFilteredItems("bryantos_events");
 
   list.innerHTML = "";
 
@@ -346,9 +490,6 @@ function renderEvents() {
   });
 }
 
-/* -------------------------
-   Contacts
-------------------------- */
 function addContact() {
   const nameInput = document.getElementById("contactName");
   const numberInput = document.getElementById("contactNumber");
@@ -361,6 +502,7 @@ function addContact() {
   const items = getStoredData("bryantos_contacts");
   items.unshift({
     id: Date.now(),
+    folder: getCurrentFolder(),
     name,
     number
   });
@@ -379,7 +521,7 @@ function deleteContact(id) {
 
 function renderContacts() {
   const list = document.getElementById("contactList");
-  const items = getStoredData("bryantos_contacts");
+  const items = getFilteredItems("bryantos_contacts");
 
   list.innerHTML = "";
 
@@ -388,7 +530,7 @@ function renderContacts() {
     li.className = "list-item";
     li.innerHTML = `
       <span>
-        <strong>${escapeHtml(item.name)}</strong> - 
+        <strong>${escapeHtml(item.name)}</strong> -
         <a href="tel:${escapeAttribute(item.number)}">${escapeHtml(item.number)}</a>
       </span>
       <button onclick="deleteContact(${item.id})">Delete</button>
@@ -397,9 +539,6 @@ function renderContacts() {
   });
 }
 
-/* -------------------------
-   Safety helpers
-------------------------- */
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -413,10 +552,9 @@ function escapeAttribute(value) {
   return String(value).replaceAll('"', "&quot;");
 }
 
-/* -------------------------
-   Init
-------------------------- */
 document.addEventListener("DOMContentLoaded", () => {
+  renderFolderDropdown();
+  updateFolderLabels();
   loadNotes();
   renderMail();
   renderMoney();
