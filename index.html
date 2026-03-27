@@ -23,9 +23,38 @@
     <button onclick="showSection('codes')">Vault</button>
     <button onclick="showSection('calendar')">Calendar</button>
     <button onclick="showSection('contacts')">Contacts</button>
+    <button onclick="showSection('photos')">Photos</button>
   </nav>
 
   <main>
+    <section class="section active" id="dashboard">
+      <h2>Dashboard</h2>
+      <p>Welcome back. Stay sharp. Stay organised.</p>
+
+      <div class="folder-panel">
+        <h3>Folders</h3>
+
+        <div class="folder-toolbar">
+          <div class="folder-select-wrap">
+            <label for="folderSelect">Current folder</label>
+            <select id="folderSelect" onchange="changeFolder()"></select>
+          </div>
+
+          <div class="folder-add-wrap">
+            <label for="newFolderInput">Add folder</label>
+            <div class="inline-row">
+              <input id="newFolderInput" type="text" placeholder="New folder name">
+              <button onclick="addFolder()">Add Folder</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="folder-actions">
+          <button class="danger-btn" onclick="deleteCurrentFolder()">Delete Current Folder</button>
+        </div>
+
+        <p class="folder-hint">
+        <main>
     <section class="section active" id="dashboard">
       <h2>Dashboard</h2>
       <p>Welcome back. Stay sharp. Stay organised.</p>
@@ -72,7 +101,7 @@
       <button onclick="addMail()">Add</button>
       <ul id="mailList"></ul>
     </section>
-
+    
     <section class="section" id="money">
       <h2>Money Tracker</h2>
       <p class="section-folder-label">Folder: <span id="moneyFolderLabel"></span></p>
@@ -81,7 +110,57 @@
       <button onclick="addMoney()">Add</button>
       <ul id="moneyList"></ul>
     </section>
+    
+    <section class="section" id="bills">
+      <h2>Bills</h2>
+      <p class="section-folder-label">Folder: <span id="billsFolderLabel"></span></p>
+      <input id="billInput" placeholder="Bill name...">
+      <button onclick="addBill()">Add</button>
+      <ul id="billList"></ul>
+    </section>
 
+    <section class="section" id="links">
+      <h2>Important Links</h2>
+      <p class="section-folder-label">Folder: <span id="linksFolderLabel"></span></p>
+      <input id="linkInput" placeholder="Paste URL or email...">
+      <button onclick="addLink()">Add</button>
+      <ul id="linkList"></ul>
+    </section>
+
+    <section class="section" id="codes">
+      <h2>Secure Vault</h2>
+      <p class="section-folder-label">Folder: <span id="codesFolderLabel"></span></p>
+      <input id="codeInput" placeholder="Store code / password / key...">
+      <button onclick="addCode()">Add</button>
+      <ul id="codeList"></ul>
+    </section>        </p>
+      </div>
+    </section>
+
+    <section class="section" id="notes">
+      <h2>Notes</h2>
+      <p class="section-folder-label">Folder: <span id="notesFolderLabel"></span></p>
+      <textarea id="notesInput" placeholder="Write notes here..."></textarea>
+      <button onclick="saveNotes()">Save Notes</button>
+    </section>
+
+    <section class="section" id="mail">
+      <h2>Inbox Vault</h2>
+      <p class="section-folder-label">Folder: <span id="mailFolderLabel"></span></p>
+      <input id="mailInput" placeholder="Paste important email or task...">
+      <button onclick="addMail()">Add</button>
+      <ul id="mailList"></ul>
+    </section>
+    
+    <section class="section" id="money">
+      <h2>Money Tracker</h2>
+      <p class="section-folder-label">Folder: <span id="moneyFolderLabel"></span></p>
+      <input id="moneyDesc" placeholder="Description">
+      <input id="moneyAmount" placeholder="+ or - amount">
+      <button onclick="addMoney()">Add</button>
+      <ul id="moneyList"></ul>
+    </section>
+    
     <section class="section" id="bills">
       <h2>Bills</h2>
       <p class="section-folder-label">Folder: <span id="billsFolderLabel"></span></p>
