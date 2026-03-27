@@ -9,10 +9,14 @@
 <body>
 
   <header class="header">
-    <h1>BryantOS</h1>
-    <p class="tagline">The tasks you avoid often hold the most value.</p>
-  </header>
+  <h1>BryantOS</h1>
+  <p class="tagline">The tasks you avoid often hold the most value.</p>
+</header>
 
+<div class="search-bar">
+  <input id="globalSearch" type="text" placeholder="Search everything..." oninput="runSearch()">
+</div>
+  
   <nav class="nav">
     <button onclick="showSection('dashboard')">Dashboard</button>
     <button onclick="showSection('notes')">Notes</button>
