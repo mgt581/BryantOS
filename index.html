@@ -4,19 +4,15 @@
   <meta charset="UTF-8">
   <title>BryantOS</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
   <link rel="stylesheet" href="styles.css">
 </head>
-
 <body>
 
-  <!-- HEADER -->
   <header class="header">
     <h1>BryantOS</h1>
     <p class="tagline">The tasks you avoid often hold the most value.</p>
   </header>
 
-  <!-- NAV -->
   <nav class="nav">
     <button onclick="showSection('dashboard')">Dashboard</button>
     <button onclick="showSection('notes')">Notes</button>
@@ -29,84 +25,106 @@
     <button onclick="showSection('contacts')">Contacts</button>
   </nav>
 
-  <!-- MAIN -->
   <main>
-
-    <!-- DASHBOARD -->
-    <section id="dashboard" class="section active">
+    <section class="section active" id="dashboard">
       <h2>Dashboard</h2>
       <p>Welcome back. Stay sharp. Stay organised.</p>
+
+      <div class="folder-panel">
+        <h3>Folders</h3>
+
+        <div class="folder-toolbar">
+          <div class="folder-select-wrap">
+            <label for="folderSelect">Current folder</label>
+            <select id="folderSelect" onchange="changeFolder()"></select>
+          </div>
+
+          <div class="folder-add-wrap">
+            <label for="newFolderInput">Add folder</label>
+            <div class="inline-row">
+              <input id="newFolderInput" type="text" placeholder="New folder name">
+              <button onclick="addFolder()">Add Folder</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="folder-actions">
+          <button class="danger-btn" onclick="deleteCurrentFolder()">Delete Current Folder</button>
+        </div>
+
+        <p class="folder-hint">
+          Items you add in Notes, Inbox Vault, Money, Bills, Links, Vault, Calendar and Contacts will save into the selected folder.
+        </p>
+      </div>
     </section>
 
-    <!-- NOTES -->
-    <section id="notes" class="section">
+    <section class="section" id="notes">
       <h2>Notes</h2>
+      <p class="section-folder-label">Folder: <span id="notesFolderLabel"></span></p>
       <textarea id="notesInput" placeholder="Write notes here..."></textarea>
       <button onclick="saveNotes()">Save Notes</button>
     </section>
 
-    <!-- INBOX VAULT -->
-    <section id="mail" class="section">
+    <section class="section" id="mail">
       <h2>Inbox Vault</h2>
+      <p class="section-folder-label">Folder: <span id="mailFolderLabel"></span></p>
       <input id="mailInput" placeholder="Paste important email or task...">
       <button onclick="addMail()">Add</button>
       <ul id="mailList"></ul>
     </section>
 
-    <!-- MONEY -->
-    <section id="money" class="section">
+    <section class="section" id="money">
       <h2>Money Tracker</h2>
+      <p class="section-folder-label">Folder: <span id="moneyFolderLabel"></span></p>
       <input id="moneyDesc" placeholder="Description">
       <input id="moneyAmount" placeholder="+ or - amount">
       <button onclick="addMoney()">Add</button>
       <ul id="moneyList"></ul>
     </section>
 
-    <!-- BILLS -->
-    <section id="bills" class="section">
+    <section class="section" id="bills">
       <h2>Bills</h2>
+      <p class="section-folder-label">Folder: <span id="billsFolderLabel"></span></p>
       <input id="billInput" placeholder="Bill name...">
       <button onclick="addBill()">Add</button>
       <ul id="billList"></ul>
     </section>
 
-    <!-- LINKS -->
-    <section id="links" class="section">
+    <section class="section" id="links">
       <h2>Important Links</h2>
+      <p class="section-folder-label">Folder: <span id="linksFolderLabel"></span></p>
       <input id="linkInput" placeholder="Paste URL or email...">
       <button onclick="addLink()">Add</button>
       <ul id="linkList"></ul>
     </section>
 
-    <!-- VAULT -->
-    <section id="codes" class="section">
+    <section class="section" id="codes">
       <h2>Secure Vault</h2>
+      <p class="section-folder-label">Folder: <span id="codesFolderLabel"></span></p>
       <input id="codeInput" placeholder="Store code / password / key...">
       <button onclick="addCode()">Add</button>
       <ul id="codeList"></ul>
     </section>
 
-    <!-- CALENDAR -->
-    <section id="calendar" class="section">
+    <section class="section" id="calendar">
       <h2>Calendar</h2>
+      <p class="section-folder-label">Folder: <span id="calendarFolderLabel"></span></p>
       <input type="date" id="dateInput">
       <input id="eventInput" placeholder="Event...">
       <button onclick="addEvent()">Add</button>
       <ul id="eventList"></ul>
     </section>
 
-    <!-- CONTACTS -->
-    <section id="contacts" class="section">
+    <section class="section" id="contacts">
       <h2>Important Contacts</h2>
+      <p class="section-folder-label">Folder: <span id="contactsFolderLabel"></span></p>
       <input id="contactName" placeholder="Name">
       <input id="contactNumber" placeholder="Number">
       <button onclick="addContact()">Add</button>
       <ul id="contactList"></ul>
     </section>
-
   </main>
 
-  <!-- FOOTER -->
   <footer class="footer">
     <p>Don’t forget why you started. Finish what matters.</p>
   </footer>
