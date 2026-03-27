@@ -57,6 +57,21 @@ body {
   font-size: 0.98rem;
 }
 
+.search-bar {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(15, 23, 42, 0.92);
+  position: sticky;
+  top: 91px;
+  z-index: 19;
+}
+
+.search-bar input {
+  width: 100%;
+  margin-top: 0;
+  background: rgba(255, 255, 255, 0.05);
+}
+
 .nav {
   display: flex;
   gap: 10px;
@@ -65,8 +80,8 @@ body {
   border-bottom: 1px solid var(--line);
   background: rgba(15, 23, 42, 0.9);
   position: sticky;
-  top: 99px;
-  z-index: 19;
+  top: 157px;
+  z-index: 18;
 }
 
 .nav::-webkit-scrollbar {
@@ -92,7 +107,7 @@ body {
 
 .nav button:hover {
   background: var(--panel-2);
-  border-color: rgba(56, 189, 248, 0.35);
+  border-color: var(--accent);
   transform: translateY(-1px);
 }
 
@@ -106,6 +121,7 @@ main {
   display: none;
   background: rgba(23, 32, 51, 0.9);
   border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
   border-radius: var(--radius);
   padding: 22px;
   box-shadow: var(--shadow);
@@ -160,8 +176,8 @@ textarea::placeholder {
 input:focus,
 textarea:focus,
 select:focus {
-  border-color: rgba(56, 189, 248, 0.7);
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.12);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 textarea {
@@ -171,7 +187,7 @@ textarea {
 
 button {
   margin-top: 12px;
-  background: linear-gradient(180deg, #38bdf8 0%, #0ea5e9 100%);
+  background: linear-gradient(180deg, var(--accent) 0%, #0ea5e9 100%);
   color: #04111d;
   border: none;
   border-radius: 14px;
@@ -228,6 +244,14 @@ ul {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+.list-actions select {
+  min-width: 150px;
+  margin-top: 0;
+  padding: 9px 12px;
+  border-radius: 10px;
 }
 
 .money-in {
@@ -303,6 +327,40 @@ ul {
   color: #ffffff;
 }
 
+.photo-item {
+  list-style: none;
+  margin-bottom: 14px;
+}
+
+.photo-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px;
+}
+
+.photo-preview {
+  width: 100%;
+  max-height: 260px;
+  object-fit: cover;
+  border-radius: 12px;
+  display: block;
+  margin-bottom: 12px;
+}
+
+.photo-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.photo-meta span {
+  flex: 1;
+  word-break: break-word;
+}
+
 .footer {
   text-align: center;
   color: var(--muted);
@@ -328,11 +386,15 @@ ul {
     font-size: 1.05rem;
   }
 
+  .search-bar {
+    top: 110px;
+  }
+
   .nav {
     justify-content: center;
     flex-wrap: wrap;
     overflow-x: visible;
-    top: 111px;
+    top: 176px;
   }
 
   main {
@@ -354,8 +416,12 @@ ul {
     font-size: 1.8rem;
   }
 
+  .search-bar {
+    top: 91px;
+  }
+
   .nav {
-    top: 92px;
+    top: 148px;
   }
 
   .list-item {
@@ -365,7 +431,8 @@ ul {
 
   .list-item button,
   .list-actions button,
-  .inline-row button {
+  .inline-row button,
+  .list-actions select {
     width: 100%;
   }
 }
