@@ -82,6 +82,7 @@ function updateFolderLabels() {
   const currentFolder = getCurrentFolder();
   const labelIds = [
     "notesFolderLabel",
+    "photosFolderLabel",
     "mailFolderLabel",
     "moneyFolderLabel",
     "billsFolderLabel",
@@ -151,6 +152,7 @@ function deleteCurrentFolder() {
   deleteItemsForFolder("bryantos_codes", currentFolder);
   deleteItemsForFolder("bryantos_events", currentFolder);
   deleteItemsForFolder("bryantos_contacts", currentFolder);
+  deleteItemsForFolder("bryantos_photos", currentFolder);
   localStorage.removeItem(getNotesKey(currentFolder));
 
   const nextFolder = updatedFolders[0] || DEFAULT_FOLDERS[0];
@@ -168,6 +170,7 @@ function refreshFolderState() {
   renderFolderDropdown();
   updateFolderLabels();
   loadNotes();
+  renderPhotos();
   renderMail();
   renderMoney();
   renderBills();
@@ -203,6 +206,66 @@ function loadNotes() {
   }
 }
 
+/* -------------------------
+   Photos / Screenshots
+------------------------- */
+function addPhoto(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function (e) {
+    const items = getStoredData("bryantos_photos");
+    items.unshift({
+      id: Date.now(),
+      folder: getCurrentFolder(),
+      name: file.name,
+      data: e.target.result
+    });
+
+    setStoredData("bryantos_photos", items);
+
+    const input = document.getElementById("photoInput");
+    if (input) input.value = "";
+
+    renderPhotos();
+  };
+
+  reader.readAsDataURL(file);
+}
+
+function deletePhoto(id) {
+  const items = getStoredData("bryantos_photos").filter((item) => item.id !== id);
+  setStoredData("bryantos_photos", items);
+  renderPhotos();
+}
+
+function renderPhotos() {
+  const list = document.getElementById("photoList");
+  if (!list) return;
+
+  const items = getFilteredItems("bryantos_photos");
+  list.innerHTML = "";
+
+  items.forEach((item) => {
+    const li = document.createElement("li");
+    li.className = "photo-item";
+    li.innerHTML = `
+      <div class="photo-card">
+        <img src="${item.data}" alt="${escapeAttribute(item.name)}" class="photo-preview">
+        <div class="photo-meta">
+          <span>${escapeHtml(item.name)}</span>
+          <button onclick="deletePhoto(${item.id})">Delete</button>
+        </div>
+      </div>
+    `;
+    list.appendChild(li);
+  });
+}
+
+/* -------------------------
+   Inbox Vault
+------------------------- */
 function addMail() {
   const input = document.getElementById("mailInput");
   const value = input.value.trim();
@@ -243,6 +306,9 @@ function renderMail() {
   });
 }
 
+/* -------------------------
+   Money Tracker
+------------------------- */
 function addMoney() {
   const descInput = document.getElementById("moneyDesc");
   const amountInput = document.getElementById("moneyAmount");
@@ -295,6 +361,9 @@ function renderMoney() {
   });
 }
 
+/* -------------------------
+   Bills
+------------------------- */
 function addBill() {
   const input = document.getElementById("billInput");
   const value = input.value.trim();
@@ -355,6 +424,9 @@ function renderBills() {
   });
 }
 
+/* -------------------------
+   Links
+------------------------- */
 function addLink() {
   const input = document.getElementById("linkInput");
   const value = input.value.trim();
@@ -404,6 +476,9 @@ function renderLinks() {
   });
 }
 
+/* -------------------------
+   Vault
+------------------------- */
 function addCode() {
   const input = document.getElementById("codeInput");
   const value = input.value.trim();
@@ -444,6 +519,9 @@ function renderCodes() {
   });
 }
 
+/* -------------------------
+   Calendar
+------------------------- */
 function addEvent() {
   const dateInput = document.getElementById("dateInput");
   const eventInput = document.getElementById("eventInput");
@@ -490,6 +568,9 @@ function renderEvents() {
   });
 }
 
+/* -------------------------
+   Contacts
+------------------------- */
 function addContact() {
   const nameInput = document.getElementById("contactName");
   const numberInput = document.getElementById("contactNumber");
@@ -539,6 +620,9 @@ function renderContacts() {
   });
 }
 
+/* -------------------------
+   Safety helpers
+------------------------- */
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -556,6 +640,7 @@ document.addEventListener("DOMContentLoaded", () => {
   renderFolderDropdown();
   updateFolderLabels();
   loadNotes();
+  renderPhotos();
   renderMail();
   renderMoney();
   renderBills();
