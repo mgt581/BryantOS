@@ -21,12 +21,11 @@ const FOLDER_COLORS = {
 
 function showSection(sectionId) {
   const sections = document.querySelectorAll(".section");
-  sections.forEach((section) => section.classList.remove("active"));
+  sections.forEach(section => section.classList.remove("active"));
 
   const selectedSection = document.getElementById(sectionId);
-
   if (!selectedSection) {
-    console.error(`Section not found: ${sectionId}`);
+    console.error("Section not found:", sectionId);
     const dashboard = document.getElementById("dashboard");
     if (dashboard) dashboard.classList.add("active");
     return;
@@ -41,7 +40,7 @@ function getStoredData(key, fallback = []) {
     const data = localStorage.getItem(key);
     return data ? JSON.parse(data) : fallback;
   } catch (error) {
-    console.error(`Error reading ${key}:`, error);
+    console.error("Error reading", key, error);
     return fallback;
   }
 }
@@ -50,7 +49,7 @@ function setStoredData(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch (error) {
-    console.error(`Error saving ${key}:`, error);
+    console.error("Error saving", key, error);
   }
 }
 
@@ -88,7 +87,7 @@ function renderFolderDropdown() {
   const currentFolder = getCurrentFolder();
 
   select.innerHTML = folders
-    .map((folder) => `<option value="${escapeAttribute(folder)}">${escapeHtml(folder)}</option>`)
+    .map(folder => `<option value="${escapeAttribute(folder)}">${escapeHtml(folder)}</option>`)
     .join("");
 
   select.value = currentFolder;
@@ -108,7 +107,7 @@ function updateFolderLabels() {
     "contactsFolderLabel"
   ];
 
-  labelIds.forEach((id) => {
+  labelIds.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.textContent = currentFolder;
   });
@@ -122,16 +121,18 @@ function applyFolderColor() {
 
 function addFolder() {
   const input = document.getElementById("newFolderInput");
-  const name = input.value.trim();
+  if (!input) return;
 
+  const name = input.value.trim();
   if (!name) {
     alert("Enter a folder name.");
     return;
   }
 
   const folders = getFolders();
+  const exists = folders.some(folder => folder.toLowerCase() === name.toLowerCase());
 
-  if (folders.some((folder) => folder.toLowerCase() === name.toLowerCase())) {
+  if (exists) {
     alert("Folder already exists.");
     return;
   }
@@ -140,7 +141,6 @@ function addFolder() {
   setStoredData(FOLDERS_KEY, folders);
   setCurrentFolder(name);
   input.value = "";
-
   refreshFolderState();
 }
 
@@ -164,7 +164,7 @@ function deleteCurrentFolder() {
   const confirmed = confirm(`Delete folder "${currentFolder}"? Items in this folder will also be removed.`);
   if (!confirmed) return;
 
-  const updatedFolders = folders.filter((folder) => folder !== currentFolder);
+  const updatedFolders = folders.filter(folder => folder !== currentFolder);
   setStoredData(FOLDERS_KEY, updatedFolders);
 
   deleteItemsForFolder("bryantos_mail", currentFolder);
@@ -175,16 +175,16 @@ function deleteCurrentFolder() {
   deleteItemsForFolder("bryantos_events", currentFolder);
   deleteItemsForFolder("bryantos_contacts", currentFolder);
   deleteItemsForFolder("bryantos_photos", currentFolder);
+
   localStorage.removeItem(getNotesKey(currentFolder));
 
   const nextFolder = updatedFolders[0] || DEFAULT_FOLDERS[0];
   setCurrentFolder(nextFolder);
-
   refreshFolderState();
 }
 
 function deleteItemsForFolder(storageKey, folderName) {
-  const items = getStoredData(storageKey, []).filter((item) => item.folder !== folderName);
+  const items = getStoredData(storageKey, []).filter(item => item.folder !== folderName);
   setStoredData(storageKey, items);
 }
 
@@ -210,25 +210,21 @@ function getNotesKey(folderName) {
 
 function getFilteredItems(key) {
   const currentFolder = getCurrentFolder();
-  return getStoredData(key, []).filter((item) => item.folder === currentFolder);
+  return getStoredData(key, []).filter(item => item.folder === currentFolder);
 }
 
 function buildFolderOptions(selectedFolder) {
   return getFolders()
-    .map((folder) => `
-      <option value="${escapeAttribute(folder)}" ${folder === selectedFolder ? "selected" : ""}>
-        ${escapeHtml(folder)}
-      </option>
-    `)
+    .map(folder => {
+      const selected = folder === selectedFolder ? "selected" : "";
+      return `<option value="${escapeAttribute(folder)}" ${selected}>${escapeHtml(folder)}</option>`;
+    })
     .join("");
 }
 
 function moveItem(storageKey, id, newFolder) {
   const items = getStoredData(storageKey, []);
-  const updated = items.map((item) =>
-    item.id === id ? { ...item, folder: newFolder } : item
-  );
-
+  const updated = items.map(item => item.id === id ? { ...item, folder: newFolder } : item);
   setStoredData(storageKey, updated);
   refreshFolderState();
 }
@@ -241,9 +237,8 @@ function runSearch() {
   const activeSection = document.querySelector(".section.active");
   if (!activeSection) return;
 
-  const searchableItems = activeSection.querySelectorAll(".list-item, .photo-item");
-
-  searchableItems.forEach((item) => {
+  const items = activeSection.querySelectorAll(".list-item, .photo-item");
+  items.forEach(item => {
     const text = item.innerText.toLowerCase();
     item.style.display = text.includes(query) ? "" : "none";
   });
@@ -251,6 +246,8 @@ function runSearch() {
 
 function saveNotes() {
   const notesInput = document.getElementById("notesInput");
+  if (!notesInput) return;
+
   const value = notesInput.value.trim();
   const currentFolder = getCurrentFolder();
   localStorage.setItem(getNotesKey(currentFolder), value);
@@ -261,20 +258,16 @@ function loadNotes() {
   const currentFolder = getCurrentFolder();
   const savedNotes = localStorage.getItem(getNotesKey(currentFolder)) || "";
   const notesInput = document.getElementById("notesInput");
-  if (notesInput) {
-    notesInput.value = savedNotes;
-  }
+  if (notesInput) notesInput.value = savedNotes;
 }
 
-/* -------------------------
-   Photos / Screenshots
-------------------------- */
+/* Photos */
 function addPhoto(event) {
   const file = event.target.files[0];
   if (!file) return;
 
   const reader = new FileReader();
-  reader.onload = function (e) {
+  reader.onload = function(e) {
     const items = getStoredData("bryantos_photos", []);
     items.unshift({
       id: Date.now(),
@@ -295,7 +288,7 @@ function addPhoto(event) {
 }
 
 function deletePhoto(id) {
-  const items = getStoredData("bryantos_photos", []).filter((item) => item.id !== id);
+  const items = getStoredData("bryantos_photos", []).filter(item => item.id !== id);
   setStoredData("bryantos_photos", items);
   renderPhotos();
 }
@@ -307,7 +300,7 @@ function renderPhotos() {
   const items = getFilteredItems("bryantos_photos");
   list.innerHTML = "";
 
-  items.forEach((item) => {
+  items.forEach(item => {
     const li = document.createElement("li");
     li.className = "photo-item";
     li.innerHTML = `
@@ -330,11 +323,11 @@ function renderPhotos() {
   runSearch();
 }
 
-/* -------------------------
-   Inbox Vault
-------------------------- */
+/* Mail */
 function addMail() {
   const input = document.getElementById("mailInput");
+  if (!input) return;
+
   const value = input.value.trim();
   if (!value) return;
 
@@ -351,18 +344,19 @@ function addMail() {
 }
 
 function deleteMail(id) {
-  const items = getStoredData("bryantos_mail", []).filter((item) => item.id !== id);
+  const items = getStoredData("bryantos_mail", []).filter(item => item.id !== id);
   setStoredData("bryantos_mail", items);
   renderMail();
 }
 
 function renderMail() {
   const list = document.getElementById("mailList");
-  const items = getFilteredItems("bryantos_mail");
+  if (!list) return;
 
+  const items = getFilteredItems("bryantos_mail");
   list.innerHTML = "";
 
-  items.forEach((item) => {
+  items.forEach(item => {
     const li = document.createElement("li");
     li.className = "list-item";
     li.innerHTML = `
@@ -380,16 +374,14 @@ function renderMail() {
   runSearch();
 }
 
-/* -------------------------
-   Money Tracker
-------------------------- */
+/* Money */
 function addMoney() {
   const descInput = document.getElementById("moneyDesc");
   const amountInput = document.getElementById("moneyAmount");
+  if (!descInput || !amountInput) return;
 
   const desc = descInput.value.trim();
   const amount = amountInput.value.trim();
-
   if (!desc || !amount) return;
 
   const items = getStoredData("bryantos_money", []);
@@ -407,18 +399,19 @@ function addMoney() {
 }
 
 function deleteMoney(id) {
-  const items = getStoredData("bryantos_money", []).filter((item) => item.id !== id);
+  const items = getStoredData("bryantos_money", []).filter(item => item.id !== id);
   setStoredData("bryantos_money", items);
   renderMoney();
 }
 
 function renderMoney() {
   const list = document.getElementById("moneyList");
-  const items = getFilteredItems("bryantos_money");
+  if (!list) return;
 
+  const items = getFilteredItems("bryantos_money");
   list.innerHTML = "";
 
-  items.forEach((item) => {
+  items.forEach(item => {
     const isIncome = item.amount.trim().startsWith("+");
     const amountClass = isIncome ? "money-in" : "money-out";
 
@@ -442,11 +435,11 @@ function renderMoney() {
   runSearch();
 }
 
-/* -------------------------
-   Bills
-------------------------- */
+/* Bills */
 function addBill() {
   const input = document.getElementById("billInput");
+  if (!input) return;
+
   const value = input.value.trim();
   if (!value) return;
 
@@ -465,27 +458,25 @@ function addBill() {
 
 function toggleBill(id) {
   const items = getStoredData("bryantos_bills", []);
-  const updated = items.map((item) =>
-    item.id === id ? { ...item, paid: !item.paid } : item
-  );
-
+  const updated = items.map(item => item.id === id ? { ...item, paid: !item.paid } : item);
   setStoredData("bryantos_bills", updated);
   renderBills();
 }
 
 function deleteBill(id) {
-  const items = getStoredData("bryantos_bills", []).filter((item) => item.id !== id);
+  const items = getStoredData("bryantos_bills", []).filter(item => item.id !== id);
   setStoredData("bryantos_bills", items);
   renderBills();
 }
 
 function renderBills() {
   const list = document.getElementById("billList");
-  const items = getFilteredItems("bryantos_bills");
+  if (!list) return;
 
+  const items = getFilteredItems("bryantos_bills");
   list.innerHTML = "";
 
-  items.forEach((item) => {
+  items.forEach(item => {
     const statusClass = item.paid ? "paid" : "unpaid";
     const statusText = item.paid ? "Paid" : "Unpaid";
 
@@ -510,11 +501,11 @@ function renderBills() {
   runSearch();
 }
 
-/* -------------------------
-   Links
-------------------------- */
+/* Links */
 function addLink() {
   const input = document.getElementById("linkInput");
+  if (!input) return;
+
   const value = input.value.trim();
   if (!value) return;
 
@@ -531,18 +522,19 @@ function addLink() {
 }
 
 function deleteLink(id) {
-  const items = getStoredData("bryantos_links", []).filter((item) => item.id !== id);
+  const items = getStoredData("bryantos_links", []).filter(item => item.id !== id);
   setStoredData("bryantos_links", items);
   renderLinks();
 }
 
 function renderLinks() {
   const list = document.getElementById("linkList");
-  const items = getFilteredItems("bryantos_links");
+  if (!list) return;
 
+  const items = getFilteredItems("bryantos_links");
   list.innerHTML = "";
 
-  items.forEach((item) => {
+  items.forEach(item => {
     const li = document.createElement("li");
     li.className = "list-item";
 
@@ -569,11 +561,11 @@ function renderLinks() {
   runSearch();
 }
 
-/* -------------------------
-   Vault
-------------------------- */
+/* Vault */
 function addCode() {
   const input = document.getElementById("codeInput");
+  if (!input) return;
+
   const value = input.value.trim();
   if (!value) return;
 
@@ -590,18 +582,19 @@ function addCode() {
 }
 
 function deleteCode(id) {
-  const items = getStoredData("bryantos_codes", []).filter((item) => item.id !== id);
+  const items = getStoredData("bryantos_codes", []).filter(item => item.id !== id);
   setStoredData("bryantos_codes", items);
   renderCodes();
 }
 
 function renderCodes() {
   const list = document.getElementById("codeList");
-  const items = getFilteredItems("bryantos_codes");
+  if (!list) return;
 
+  const items = getFilteredItems("bryantos_codes");
   list.innerHTML = "";
 
-  items.forEach((item) => {
+  items.forEach(item => {
     const li = document.createElement("li");
     li.className = "list-item";
     li.innerHTML = `
@@ -619,16 +612,14 @@ function renderCodes() {
   runSearch();
 }
 
-/* -------------------------
-   Calendar
-------------------------- */
+/* Calendar */
 function addEvent() {
   const dateInput = document.getElementById("dateInput");
   const eventInput = document.getElementById("eventInput");
+  if (!dateInput || !eventInput) return;
 
   const date = dateInput.value;
   const text = eventInput.value.trim();
-
   if (!date || !text) return;
 
   const items = getStoredData("bryantos_events", []);
@@ -646,18 +637,19 @@ function addEvent() {
 }
 
 function deleteEvent(id) {
-  const items = getStoredData("bryantos_events", []).filter((item) => item.id !== id);
+  const items = getStoredData("bryantos_events", []).filter(item => item.id !== id);
   setStoredData("bryantos_events", items);
   renderEvents();
 }
 
 function renderEvents() {
   const list = document.getElementById("eventList");
-  const items = getFilteredItems("bryantos_events");
+  if (!list) return;
 
+  const items = getFilteredItems("bryantos_events");
   list.innerHTML = "";
 
-  items.forEach((item) => {
+  items.forEach(item => {
     const li = document.createElement("li");
     li.className = "list-item";
     li.innerHTML = `
@@ -675,16 +667,14 @@ function renderEvents() {
   runSearch();
 }
 
-/* -------------------------
-   Contacts
-------------------------- */
+/* Contacts */
 function addContact() {
   const nameInput = document.getElementById("contactName");
   const numberInput = document.getElementById("contactNumber");
+  if (!nameInput || !numberInput) return;
 
   const name = nameInput.value.trim();
   const number = numberInput.value.trim();
-
   if (!name || !number) return;
 
   const items = getStoredData("bryantos_contacts", []);
@@ -702,18 +692,19 @@ function addContact() {
 }
 
 function deleteContact(id) {
-  const items = getStoredData("bryantos_contacts", []).filter((item) => item.id !== id);
+  const items = getStoredData("bryantos_contacts", []).filter(item => item.id !== id);
   setStoredData("bryantos_contacts", items);
   renderContacts();
 }
 
 function renderContacts() {
   const list = document.getElementById("contactList");
-  const items = getFilteredItems("bryantos_contacts");
+  if (!list) return;
 
+  const items = getFilteredItems("bryantos_contacts");
   list.innerHTML = "";
 
-  items.forEach((item) => {
+  items.forEach(item => {
     const li = document.createElement("li");
     li.className = "list-item";
     li.innerHTML = `
@@ -734,9 +725,6 @@ function renderContacts() {
   runSearch();
 }
 
-/* -------------------------
-   Safety helpers
-------------------------- */
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -750,7 +738,7 @@ function escapeAttribute(value) {
   return String(value).replaceAll('"', "&quot;");
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", function() {
   renderFolderDropdown();
   updateFolderLabels();
   applyFolderColor();
