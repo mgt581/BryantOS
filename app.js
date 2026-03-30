@@ -738,6 +738,16 @@ function escapeAttribute(value) {
   return String(value).replaceAll('"', "&quot;");
 }
 
+function focusMoneyAmount() {
+  const el = document.getElementById("moneyAmount");
+  if (el) el.focus();
+}
+
+function focusContactNumber() {
+  const el = document.getElementById("contactNumber");
+  if (el) el.focus();
+}
+
 document.addEventListener("DOMContentLoaded", function() {
   renderFolderDropdown();
   updateFolderLabels();
