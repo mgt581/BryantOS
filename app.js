@@ -1,3 +1,83 @@
+// ── Firebase references (populated after auth) ────────────────────────────────
+let _db  = null;
+let _uid = null;
+let _saveTimer = null;
+
+// Delay (ms) before flushing localStorage changes to Firestore.
+// Short enough to feel instant; long enough to batch rapid edits into one write.
+const SYNC_DEBOUNCE_MS = 1500;
+
+// Keys synced to Firestore. Photos are excluded — base64 data is too large.
+const SYNC_KEYS = [
+  "bryantos_folders",
+  "bryantos_current_folder",
+  "bryantos_mail",
+  "bryantos_money",
+  "bryantos_bills",
+  "bryantos_links",
+  "bryantos_codes",
+  "bryantos_events",
+  "bryantos_contacts"
+];
+
+async function loadFromFirestore() {
+  if (!_db || !_uid) return;
+  try {
+    const doc = await _db
+      .collection("users").doc(_uid)
+      .collection("data").doc("bryantos")
+      .get();
+    if (doc.exists) {
+      const saved = doc.data();
+      Object.entries(saved).forEach(([key, val]) => {
+        localStorage.setItem(key, typeof val === "string" ? val : JSON.stringify(val));
+      });
+    }
+  } catch (err) {
+    console.error("Firestore load failed:", err);
+  }
+}
+
+function scheduleSyncToFirestore() {
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(syncToFirestore, SYNC_DEBOUNCE_MS);
+}
+
+async function syncToFirestore() {
+  if (!_db || !_uid) return;
+  try {
+    const data = {};
+    SYNC_KEYS.forEach(key => {
+      const raw = localStorage.getItem(key);
+      if (raw !== null) {
+        try { data[key] = JSON.parse(raw); } catch { data[key] = raw; }
+      }
+    });
+    getFolders().forEach(folder => {
+      const key = getNotesKey(folder);
+      const val = localStorage.getItem(key);
+      if (val !== null) data[key] = val;
+    });
+    await _db
+      .collection("users").doc(_uid)
+      .collection("data").doc("bryantos")
+      .set(data);
+    const banner = document.getElementById("syncError");
+    if (banner) banner.hidden = true;
+  } catch (err) {
+    console.error("Firestore sync failed:", err);
+    const banner = document.getElementById("syncError");
+    if (banner) banner.hidden = false;
+  }
+}
+
+function signOut() {
+  firebase.auth().signOut().then(function() {
+    window.location.href = "signin.html";
+  });
+}
+
+// ── App data ──────────────────────────────────────────────────────────────────
 const DEFAULT_FOLDERS = [
   "Personal",
   "Bryant Digital",
@@ -48,6 +128,7 @@ function getStoredData(key, fallback = []) {
 function setStoredData(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    scheduleSyncToFirestore();
   } catch (error) {
     console.error("Error saving", key, error);
   }
@@ -77,6 +158,7 @@ function getCurrentFolder() {
 
 function setCurrentFolder(folderName) {
   localStorage.setItem(CURRENT_FOLDER_KEY, folderName);
+  scheduleSyncToFirestore();
 }
 
 function renderFolderDropdown() {
@@ -251,6 +333,7 @@ function saveNotes() {
   const value = notesInput.value.trim();
   const currentFolder = getCurrentFolder();
   localStorage.setItem(getNotesKey(currentFolder), value);
+  scheduleSyncToFirestore();
   alert(`Notes saved in ${currentFolder}.`);
 }
 
@@ -739,17 +822,33 @@ function escapeAttribute(value) {
 }
 
 document.addEventListener("DOMContentLoaded", function() {
-  renderFolderDropdown();
-  updateFolderLabels();
-  applyFolderColor();
-  loadNotes();
-  renderPhotos();
-  renderMail();
-  renderMoney();
-  renderBills();
-  renderLinks();
-  renderCodes();
-  renderEvents();
-  renderContacts();
-  runSearch();
+  firebase.initializeApp(FIREBASE_CONFIG);
+  const auth = firebase.auth();
+
+  auth.onAuthStateChanged(async function(user) {
+    if (!user) {
+      window.location.href = "signin.html";
+      return;
+    }
+
+    _db  = firebase.firestore();
+    _uid = user.uid;
+
+    // Pull latest data from Firestore into localStorage, then render
+    await loadFromFirestore();
+
+    renderFolderDropdown();
+    updateFolderLabels();
+    applyFolderColor();
+    loadNotes();
+    renderPhotos();
+    renderMail();
+    renderMoney();
+    renderBills();
+    renderLinks();
+    renderCodes();
+    renderEvents();
+    renderContacts();
+    runSearch();
+  });
 });
