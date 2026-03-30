@@ -5,13 +5,23 @@
   <title>BryantOS</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="styles.css">
+  <!-- Firebase compat SDK (v10) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
 </head>
 <body>
 
   <header class="header">
   <h1>BryantOS</h1>
   <p class="tagline">The tasks you avoid often hold the most value.</p>
+  <button class="signout-btn" onclick="signOut()">Sign Out</button>
 </header>
+
+<div id="syncError" class="sync-error" hidden>
+  ⚠️ Cloud sync failed — your changes are saved locally but not backed up.
+</div>
 
 <div class="search-bar">
   <div class="search-input-wrap">
