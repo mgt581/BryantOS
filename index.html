@@ -65,7 +65,7 @@
           <div class="folder-add-wrap">
             <label for="newFolderInput">Add folder</label>
             <div class="inline-row">
-              <input id="newFolderInput" type="text" placeholder="New folder name" onkeydown="if(event.key==='Enter') addFolder()">
+              <input id="newFolderInput" type="text" placeholder="New folder name" onkeydown="if(event.key==='Enter'){event.preventDefault();addFolder()}">
               <button onclick="addFolder()">Add Folder</button>
             </div>
           </div>
@@ -98,6 +98,7 @@
     <section class="section" id="mail">
       <h2>Inbox Vault</h2>
       <p class="section-folder-label">Folder: <span id="mailFolderLabel"></span></p>
+      <input id="mailInput" placeholder="Paste important email or task..." onkeydown="if(event.key==='Enter'){event.preventDefault();addMail()}">
       <input id="mailInput" placeholder="Paste important email or task..." onkeydown="if(event.key==='Enter') addMail()">
       <button onclick="addMail()">Add</button>
       <ul id="mailList"></ul>
@@ -106,6 +107,8 @@
     <section class="section" id="money">
       <h2>Money Tracker</h2>
       <p class="section-folder-label">Folder: <span id="moneyFolderLabel"></span></p>
+      <input id="moneyDesc" placeholder="Description">
+      <input id="moneyAmount" placeholder="+ or - amount" onkeydown="if(event.key==='Enter'){event.preventDefault();addMoney()}">
       <input id="moneyDesc" placeholder="Description" onkeydown="if(event.key==='Enter') document.getElementById('moneyAmount').focus()">
       <input id="moneyAmount" placeholder="+ or - amount" onkeydown="if(event.key==='Enter') addMoney()">
       <button onclick="addMoney()">Add</button>
@@ -115,6 +118,7 @@
     <section class="section" id="bills">
       <h2>Bills</h2>
       <p class="section-folder-label">Folder: <span id="billsFolderLabel"></span></p>
+      <input id="billInput" placeholder="Bill name..." onkeydown="if(event.key==='Enter'){event.preventDefault();addBill()}">
       <input id="billInput" placeholder="Bill name..." onkeydown="if(event.key==='Enter') addBill()">
       <button onclick="addBill()">Add</button>
       <ul id="billList"></ul>
@@ -123,7 +127,7 @@
     <section class="section" id="links">
       <h2>Important Links</h2>
       <p class="section-folder-label">Folder: <span id="linksFolderLabel"></span></p>
-      <input id="linkInput" placeholder="Paste URL or email..." onkeydown="if(event.key==='Enter') addLink()">
+      <input id="linkInput" placeholder="Paste URL or email..." onkeydown="if(event.key==='Enter'){event.preventDefault();addLink()}">
       <button onclick="addLink()">Add</button>
       <ul id="linkList"></ul>
     </section>
@@ -131,7 +135,7 @@
     <section class="section" id="codes">
       <h2>Secure Vault</h2>
       <p class="section-folder-label">Folder: <span id="codesFolderLabel"></span></p>
-      <input id="codeInput" placeholder="Store code / password / key..." onkeydown="if(event.key==='Enter') addCode()">
+      <input id="codeInput" placeholder="Store code / password / key..." onkeydown="if(event.key==='Enter'){event.preventDefault();addCode()}">
       <button onclick="addCode()">Add</button>
       <ul id="codeList"></ul>
     </section>
@@ -140,7 +144,7 @@
       <h2>Calendar</h2>
       <p class="section-folder-label">Folder: <span id="calendarFolderLabel"></span></p>
       <input type="date" id="dateInput">
-      <input id="eventInput" placeholder="Event..." onkeydown="if(event.key==='Enter') addEvent()">
+      <input id="eventInput" placeholder="Event..." onkeydown="if(event.key==='Enter'){event.preventDefault();addEvent()}">
       <button onclick="addEvent()">Add</button>
       <ul id="eventList"></ul>
     </section>
@@ -148,8 +152,8 @@
     <section class="section" id="contacts">
       <h2>Important Contacts</h2>
       <p class="section-folder-label">Folder: <span id="contactsFolderLabel"></span></p>
-      <input id="contactName" placeholder="Name" onkeydown="if(event.key==='Enter') document.getElementById('contactNumber').focus()">
-      <input id="contactNumber" placeholder="Number" onkeydown="if(event.key==='Enter') addContact()">
+      <input id="contactName" placeholder="Name">
+      <input id="contactNumber" placeholder="Number" onkeydown="if(event.key==='Enter'){event.preventDefault();addContact()}">
       <button onclick="addContact()">Add</button>
       <ul id="contactList"></ul>
     </section>
