@@ -36,6 +36,14 @@ function getFriendlyErrorMessage(error) {
   return message;
 }
 
+function isSignInPage() {
+  return window.location.pathname === "/signin.html" || window.location.pathname === "/signin";
+}
+
+function isHomePage() {
+  return window.location.pathname === "/" || window.location.pathname === "/index.html";
+}
+
 async function syncUserToBackend(user) {
   const idToken = await user.getIdToken();
 
@@ -66,7 +74,7 @@ async function handleSignedInUser(user, shouldRedirect = false) {
 
   if (hasSyncedCurrentUser) {
     if (shouldRedirect) {
-      window.location.href = "/dashboard.html";
+      window.location.href = "/index.html";
     }
     return;
   }
@@ -79,7 +87,7 @@ async function handleSignedInUser(user, shouldRedirect = false) {
     setStatus("Success.");
 
     if (shouldRedirect) {
-      window.location.href = "/dashboard.html";
+      window.location.href = "/index.html";
     }
   } catch (error) {
     console.error("Backend sync failed:", error);
@@ -107,6 +115,16 @@ if (signInBtn) {
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
     hasSyncedCurrentUser = false;
+
+    if (isHomePage()) {
+      window.location.href = "/signin.html";
+    }
+
+    return;
+  }
+
+  if (isSignInPage()) {
+    await handleSignedInUser(user, true);
     return;
   }
 
