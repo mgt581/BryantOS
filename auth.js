@@ -88,14 +88,14 @@ async function handleSignedInUser(user, shouldRedirect = false) {
     setStatus("Syncing account...");
     await syncUserToBackend(user);
     setStatus("Success.");
-
-    if (shouldRedirect) {
-      window.location.href = "/BryantOS/index.html";
-    }
   } catch (error) {
     console.error("Backend sync failed:", error);
     hasSyncedCurrentUser = false;
-    setStatus(`Login failed: ${getFriendlyErrorMessage(error)}`, true);
+    setStatus("Signed in. Account sync unavailable.");
+  }
+
+  if (shouldRedirect) {
+    window.location.href = "/BryantOS/index.html";
   }
 }
 
