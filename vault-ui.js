@@ -1,47 +1,73 @@
-import { unlockVault, addVaultItem, getVaultItems } from "./vault.js";
+import { unlockVault, addVaultItem, getVaultItems, isVaultUnlocked } from "./vault.js";
 
-let unlocked = false;
+window.unlockVaultUI = async function unlockVaultUI() {
+  const passInput = document.getElementById("vaultPasscode");
+  const vaultContent = document.getElementById("vaultContent");
 
-window.unlockVaultUI = async function () {
-  const pass = document.getElementById("vaultPasscode").value;
+  if (!passInput || !vaultContent) return;
+
+  const passcode = passInput.value.trim();
+  if (!passcode) {
+    alert("Enter a passcode first.");
+    return;
+  }
 
   try {
-    await unlockVault(pass);
-    unlocked = true;
-
-    document.getElementById("vaultContent").style.display = "block";
-
-    renderVault();
-  } catch (err) {
-    alert("Wrong passcode");
+    await unlockVault(passcode);
+    vaultContent.style.display = "block";
+    await renderVault();
+  } catch (error) {
+    console.error("Vault unlock failed:", error);
+    alert("Wrong passcode.");
   }
 };
 
-window.addVaultItem = async function () {
-  if (!unlocked) return alert("Unlock vault first");
+window.addVaultItem = async function addVaultItemUI() {
+  if (!isVaultUnlocked()) {
+    alert("Unlock vault first.");
+    return;
+  }
 
-  const name = document.getElementById("vaultName").value;
-  const value = document.getElementById("vaultValue").value;
+  const nameInput = document.getElementById("vaultName");
+  const valueInput = document.getElementById("vaultValue");
 
-  if (!name || !value) return;
+  if (!nameInput || !valueInput) return;
 
-  await addVaultItem(name, value);
+  const name = nameInput.value.trim();
+  const value = valueInput.value.trim();
 
-  document.getElementById("vaultName").value = "";
-  document.getElementById("vaultValue").value = "";
+  if (!name || !value) {
+    alert("Enter both a name and a secret.");
+    return;
+  }
 
-  renderVault();
+  try {
+    await addVaultItem(name, value);
+    nameInput.value = "";
+    valueInput.value = "";
+    await renderVault();
+  } catch (error) {
+    console.error("Vault save failed:", error);
+    alert("Failed to save vault item.");
+  }
 };
 
 async function renderVault() {
   const list = document.getElementById("vaultList");
+  if (!list) return;
+
   list.innerHTML = "";
 
-  const items = await getVaultItems();
+  try {
+    const items = await getVaultItems();
 
-  items.forEach(item => {
-    const li = document.createElement("li");
-    li.innerHTML = `<strong>${item.name}</strong>: ${item.value}`;
-    list.appendChild(li);
-  });
+    items.forEach(item => {
+      const li = document.createElement("li");
+      li.className = "list-item";
+      li.innerHTML = `<span><strong>${item.name}</strong> - ${item.value}</span>`;
+      list.appendChild(li);
+    });
+  } catch (error) {
+    console.error("Vault render failed:", error);
+  }
 }
