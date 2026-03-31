@@ -1,5 +1,3 @@
-// Simple encryption using Web Crypto API
-
 export async function deriveKey(passcode) {
   const enc = new TextEncoder();
 
@@ -14,7 +12,7 @@ export async function deriveKey(passcode) {
   return crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
-      salt: enc.encode("bryantos-salt"),
+      salt: enc.encode("bryantos-secure-vault"),
       iterations: 100000,
       hash: "SHA-256"
     },
