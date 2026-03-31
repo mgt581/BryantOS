@@ -37,17 +37,20 @@ function getFriendlyErrorMessage(error) {
 }
 
 function isSignInPage() {
-  return window.location.pathname === "/signin.html" || window.location.pathname === "/signin";
+  return window.location.pathname.endsWith("signin.html");
 }
 
 function isHomePage() {
-  return window.location.pathname === "/" || window.location.pathname === "/index.html";
+  return (
+    window.location.pathname.endsWith("/") ||
+    window.location.pathname.endsWith("index.html")
+  );
 }
 
 async function syncUserToBackend(user) {
   const idToken = await user.getIdToken();
 
-  const response = await fetch("/api/auth/firebase-login", {
+  const response = await fetch("https://bryantos.alexbryant.workers.dev/api/auth/firebase-login", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -74,7 +77,7 @@ async function handleSignedInUser(user, shouldRedirect = false) {
 
   if (hasSyncedCurrentUser) {
     if (shouldRedirect) {
-      window.location.href = "/index.html";
+      window.location.href = "index.html";
     }
     return;
   }
@@ -87,7 +90,7 @@ async function handleSignedInUser(user, shouldRedirect = false) {
     setStatus("Success.");
 
     if (shouldRedirect) {
-      window.location.href = "/index.html";
+      window.location.href = "index.html";
     }
   } catch (error) {
     console.error("Backend sync failed:", error);
@@ -117,7 +120,7 @@ onAuthStateChanged(auth, async (user) => {
     hasSyncedCurrentUser = false;
 
     if (isHomePage()) {
-      window.location.href = "/signin.html";
+      window.location.href = "signin.html";
     }
 
     return;
@@ -135,7 +138,7 @@ window.logoutBryantOS = async function logoutBryantOS() {
   try {
     await signOut(auth);
     hasSyncedCurrentUser = false;
-    window.location.href = "/signin.html";
+    window.location.href = "signin.html";
   } catch (error) {
     console.error("Logout error:", error);
     setStatus(`Logout failed: ${getFriendlyErrorMessage(error)}`, true);
