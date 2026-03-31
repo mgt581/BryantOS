@@ -25,6 +25,7 @@
     <button onclick="showSection('codes')">Vault</button>
     <button onclick="showSection('calendar')">Calendar</button>
     <button onclick="showSection('contacts')">Contacts</button>
+    <button onclick="showSection('vaultSecure')">Secure Vault</button>
   </nav>
 
   <main>
@@ -132,6 +133,21 @@
       <button onclick="addContact()">Add</button>
       <ul id="contactList"></ul>
     </section>
+
+    <section class="section" id="vaultSecure">
+      <h2>Secure Vault</h2>
+
+      <input id="vaultPasscode" type="password" placeholder="Enter passcode">
+      <button onclick="unlockVaultUI()">Unlock Vault</button>
+
+      <div id="vaultContent" style="display:none;">
+        <input id="vaultName" placeholder="Name">
+        <input id="vaultValue" placeholder="Secret">
+        <button onclick="addVaultItem()">Save</button>
+
+        <ul id="vaultList"></ul>
+      </div>
+    </section>
   </main>
 
   <footer class="footer">
@@ -140,5 +156,6 @@
 
   <script src="./app.js"></script>
   <script type="module" src="./photo-storage.js"></script>
+  <script type="module" src="./vault-ui.js"></script>
 </body>
 </html>
