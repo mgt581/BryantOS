@@ -1,13 +1,39 @@
-import { signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+import {
+  signInWithPopup,
+  signOut,
+  onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+
 import { auth, provider } from "./firebase-init.js";
 
 const signInBtn = document.getElementById("googleSignInBtn");
 const statusEl = document.getElementById("authStatus");
 
+let hasSyncedCurrentUser = false;
+
 function setStatus(message, isError = false) {
   if (!statusEl) return;
   statusEl.textContent = message;
   statusEl.style.color = isError ? "#ff6b6b" : "#ffffff";
+}
+
+function getFriendlyErrorMessage(error) {
+  const code = error?.code || "";
+  const message = error?.message || "Something went wrong.";
+
+  if (code === "auth/popup-closed-by-user") {
+    return "Sign-in popup was closed before finishing.";
+  }
+
+  if (code === "auth/popup-blocked") {
+    return "Popup was blocked by your browser. Allow popups and try again.";
+  }
+
+  if (code === "auth/unauthorized-domain") {
+    return "This domain is not authorised in Firebase yet.";
+  }
+
+  return message;
 }
 
 async function syncUserToBackend(user) {
@@ -35,6 +61,33 @@ async function syncUserToBackend(user) {
   return response.json();
 }
 
+async function handleSignedInUser(user, shouldRedirect = false) {
+  if (!user) return;
+
+  if (hasSyncedCurrentUser) {
+    if (shouldRedirect) {
+      window.location.href = "/dashboard.html";
+    }
+    return;
+  }
+
+  hasSyncedCurrentUser = true;
+
+  try {
+    setStatus("Syncing account...");
+    await syncUserToBackend(user);
+    setStatus("Success.");
+
+    if (shouldRedirect) {
+      window.location.href = "/dashboard.html";
+    }
+  } catch (error) {
+    console.error("Backend sync failed:", error);
+    hasSyncedCurrentUser = false;
+    setStatus(`Login failed: ${getFriendlyErrorMessage(error)}`, true);
+  }
+}
+
 if (signInBtn) {
   signInBtn.addEventListener("click", async () => {
     try {
@@ -43,34 +96,30 @@ if (signInBtn) {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
 
-      setStatus("Signed in. Syncing account...");
-
-      await syncUserToBackend(user);
-
-      setStatus("Success. Redirecting...");
-      window.location.href = "/dashboard.html";
+      await handleSignedInUser(user, true);
     } catch (error) {
       console.error("Login error:", error);
-      setStatus(`Login failed: ${error.message}`, true);
+      setStatus(`Login failed: ${getFriendlyErrorMessage(error)}`, true);
     }
   });
 }
 
 onAuthStateChanged(auth, async (user) => {
-  if (!user) return;
-
-  try {
-    await syncUserToBackend(user);
-  } catch (error) {
-    console.error("Auto sync failed:", error);
+  if (!user) {
+    hasSyncedCurrentUser = false;
+    return;
   }
+
+  await handleSignedInUser(user, false);
 });
 
 window.logoutBryantOS = async function logoutBryantOS() {
   try {
     await signOut(auth);
+    hasSyncedCurrentUser = false;
     window.location.href = "/signin.html";
   } catch (error) {
     console.error("Logout error:", error);
+    setStatus(`Logout failed: ${getFriendlyErrorMessage(error)}`, true);
   }
 };
