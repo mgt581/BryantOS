@@ -91,8 +91,7 @@
     <h1>BryantOS</h1>
     <p class="tagline">The tasks you avoid often hold the most value.</p>
 
-    <button class="google-btn" id="googleBtn" onclick="signInWithGoogle()">
-      <!-- Google "G" logo SVG -->
+    <button class="google-btn" id="googleSignInBtn" type="button">
       <svg class="google-logo" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
         <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
         <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
@@ -102,38 +101,9 @@
       Sign in with Google
     </button>
 
-    <p class="error-msg" id="errorMsg"></p>
+    <p class="error-msg" id="authStatus"></p>
   </div>
 
-  <!-- Firebase compat SDK (v10) -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-  <script src="firebase-config.js"></script>
-  <script>
-    firebase.initializeApp(FIREBASE_CONFIG);
-    const auth = firebase.auth();
-
-    // If already signed in, go straight to the app
-    auth.onAuthStateChanged(function(user) {
-      if (user) window.location.href = "index.html";
-    });
-
-    function signInWithGoogle() {
-      const btn = document.getElementById("googleBtn");
-      const errEl = document.getElementById("errorMsg");
-      btn.disabled = true;
-      errEl.textContent = "";
-
-      const provider = new firebase.auth.GoogleAuthProvider();
-      auth.signInWithPopup(provider)
-        .then(function() {
-          window.location.href = "index.html";
-        })
-        .catch(function(err) {
-          errEl.textContent = err.message;
-          btn.disabled = false;
-        });
-    }
-  </script>
-
+  <script type="module" src="./auth.js"></script>
 </body>
+</html>
