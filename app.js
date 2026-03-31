@@ -1,13 +1,24 @@
-// ── Firebase references (populated after auth) ────────────────────────────────
-let _db  = null;
+import { auth, db } from "./firebase-init.js";
+import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+import {
+  doc,
+  getDoc,
+  setDoc,
+  collection,
+  getDocs,
+  deleteDoc,
+  updateDoc
+} from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
+
+// ── Firebase state ───────────────────────────────────────────────────────────
 let _uid = null;
 let _saveTimer = null;
+let _photoCache = [];
 
-// Delay (ms) before flushing localStorage changes to Firestore.
-// Short enough to feel instant; long enough to batch rapid edits into one write.
+// Delay before flushing localStorage changes to Firestore.
 const SYNC_DEBOUNCE_MS = 1500;
 
-// Keys synced to Firestore. Photos are excluded — base64 data is too large.
+// Keys synced to Firestore (photos handled separately)
 const SYNC_KEYS = [
   "bryantos_folders",
   "bryantos_current_folder",
@@ -20,64 +31,7 @@ const SYNC_KEYS = [
   "bryantos_contacts"
 ];
 
-async function loadFromFirestore() {
-  if (!_db || !_uid) return;
-  try {
-    const doc = await _db
-      .collection("users").doc(_uid)
-      .collection("data").doc("bryantos")
-      .get();
-    if (doc.exists) {
-      const saved = doc.data();
-      Object.entries(saved).forEach(([key, val]) => {
-        localStorage.setItem(key, typeof val === "string" ? val : JSON.stringify(val));
-      });
-    }
-  } catch (err) {
-    console.error("Firestore load failed:", err);
-  }
-}
-
-function scheduleSyncToFirestore() {
-  clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(syncToFirestore, SYNC_DEBOUNCE_MS);
-}
-
-async function syncToFirestore() {
-  if (!_db || !_uid) return;
-  try {
-    const data = {};
-    SYNC_KEYS.forEach(key => {
-      const raw = localStorage.getItem(key);
-      if (raw !== null) {
-        try { data[key] = JSON.parse(raw); } catch { data[key] = raw; }
-      }
-    });
-    getFolders().forEach(folder => {
-      const key = getNotesKey(folder);
-      const val = localStorage.getItem(key);
-      if (val !== null) data[key] = val;
-    });
-    await _db
-      .collection("users").doc(_uid)
-      .collection("data").doc("bryantos")
-      .set(data);
-    const banner = document.getElementById("syncError");
-    if (banner) banner.hidden = true;
-  } catch (err) {
-    console.error("Firestore sync failed:", err);
-    const banner = document.getElementById("syncError");
-    if (banner) banner.hidden = false;
-  }
-}
-
-function signOut() {
-  firebase.auth().signOut().then(function() {
-    window.location.href = "signin.html";
-  });
-}
-
-// ── App data ──────────────────────────────────────────────────────────────────
+// ── App data ─────────────────────────────────────────────────────────────────
 const DEFAULT_FOLDERS = [
   "Personal",
   "Bryant Digital",
@@ -99,6 +53,87 @@ const FOLDER_COLORS = {
   "MultiPost": "#ec4899"
 };
 
+// ── Firestore sync helpers ──────────────────────────────────────────────────
+async function loadFromFirestore() {
+  if (!_uid) return;
+
+  try {
+    const ref = doc(db, "users", _uid, "data", "bryantos");
+    const snapshot = await getDoc(ref);
+
+    if (snapshot.exists()) {
+      const saved = snapshot.data();
+
+      Object.entries(saved).forEach(([key, val]) => {
+        localStorage.setItem(
+          key,
+          typeof val === "string" ? val : JSON.stringify(val)
+        );
+      });
+    }
+  } catch (err) {
+    console.error("Firestore load failed:", err);
+  }
+}
+
+function scheduleSyncToFirestore() {
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(syncToFirestore, SYNC_DEBOUNCE_MS);
+}
+
+async function syncToFirestore() {
+  if (!_uid) return;
+
+  try {
+    const data = {};
+
+    SYNC_KEYS.forEach(key => {
+      const raw = localStorage.getItem(key);
+      if (raw !== null) {
+        try {
+          data[key] = JSON.parse(raw);
+        } catch {
+          data[key] = raw;
+        }
+      }
+    });
+
+    getFolders().forEach(folder => {
+      const key = getNotesKey(folder);
+      const val = localStorage.getItem(key);
+      if (val !== null) data[key] = val;
+    });
+
+    await setDoc(doc(db, "users", _uid, "data", "bryantos"), data, { merge: true });
+
+    const banner = document.getElementById("syncError");
+    if (banner) banner.hidden = true;
+  } catch (err) {
+    console.error("Firestore sync failed:", err);
+    const banner = document.getElementById("syncError");
+    if (banner) banner.hidden = false;
+  }
+}
+
+async function loadPhotosFromFirestore() {
+  if (!_uid) return;
+
+  try {
+    const snapshot = await getDocs(collection(db, "users", _uid, "photos"));
+
+    _photoCache = snapshot.docs
+      .map(docSnap => ({
+        id: docSnap.id,
+        ...docSnap.data()
+      }))
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  } catch (err) {
+    console.error("Photo load failed:", err);
+    _photoCache = [];
+  }
+}
+
+// ── UI helpers ───────────────────────────────────────────────────────────────
 function showSection(sectionId) {
   const sections = document.querySelectorAll(".section");
   sections.forEach(section => section.classList.remove("active"));
@@ -234,7 +269,7 @@ function changeFolder() {
   refreshFolderState();
 }
 
-function deleteCurrentFolder() {
+async function deleteCurrentFolder() {
   const currentFolder = getCurrentFolder();
   const folders = getFolders();
 
@@ -256,7 +291,20 @@ function deleteCurrentFolder() {
   deleteItemsForFolder("bryantos_codes", currentFolder);
   deleteItemsForFolder("bryantos_events", currentFolder);
   deleteItemsForFolder("bryantos_contacts", currentFolder);
-  deleteItemsForFolder("bryantos_photos", currentFolder);
+
+  const photoIdsToDelete = _photoCache
+    .filter(item => item.folder === currentFolder)
+    .map(item => item.id);
+
+  for (const photoId of photoIdsToDelete) {
+    try {
+      await deleteDoc(doc(db, "users", _uid, "photos", String(photoId)));
+    } catch (err) {
+      console.error("Failed to delete photo from Firestore:", err);
+    }
+  }
+
+  _photoCache = _photoCache.filter(item => item.folder !== currentFolder);
 
   localStorage.removeItem(getNotesKey(currentFolder));
 
@@ -295,6 +343,11 @@ function getFilteredItems(key) {
   return getStoredData(key, []).filter(item => item.folder === currentFolder);
 }
 
+function getFilteredPhotos() {
+  const currentFolder = getCurrentFolder();
+  return _photoCache.filter(item => item.folder === currentFolder);
+}
+
 function buildFolderOptions(selectedFolder) {
   return getFolders()
     .map(folder => {
@@ -304,7 +357,26 @@ function buildFolderOptions(selectedFolder) {
     .join("");
 }
 
-function moveItem(storageKey, id, newFolder) {
+async function moveItem(storageKey, id, newFolder) {
+  if (storageKey === "bryantos_photos") {
+    const photoId = String(id);
+
+    _photoCache = _photoCache.map(item =>
+      String(item.id) === photoId ? { ...item, folder: newFolder } : item
+    );
+
+    try {
+      await updateDoc(doc(db, "users", _uid, "photos", photoId), {
+        folder: newFolder
+      });
+    } catch (err) {
+      console.error("Failed to move photo:", err);
+    }
+
+    renderPhotos();
+    return;
+  }
+
   const items = getStoredData(storageKey, []);
   const updated = items.map(item => item.id === id ? { ...item, folder: newFolder } : item);
   setStoredData(storageKey, updated);
@@ -326,6 +398,7 @@ function runSearch() {
   });
 }
 
+// ── Notes ────────────────────────────────────────────────────────────────────
 function saveNotes() {
   const notesInput = document.getElementById("notesInput");
   if (!notesInput) return;
@@ -344,43 +417,61 @@ function loadNotes() {
   if (notesInput) notesInput.value = savedNotes;
 }
 
-/* Photos */
-function addPhoto(event) {
+// ── Photos ───────────────────────────────────────────────────────────────────
+async function addPhoto(event) {
   const file = event.target.files[0];
-  if (!file) return;
+  if (!file || !_uid) return;
 
   const reader = new FileReader();
-  reader.onload = function(e) {
-    const items = getStoredData("bryantos_photos", []);
-    items.unshift({
-      id: Date.now(),
+
+  reader.onload = async function (e) {
+    const id = String(Date.now());
+
+    const photo = {
       folder: getCurrentFolder(),
       name: file.name,
-      data: e.target.result
-    });
+      data: e.target.result,
+      createdAt: Date.now()
+    };
 
-    setStoredData("bryantos_photos", items);
+    try {
+      await setDoc(doc(db, "users", _uid, "photos", id), photo);
 
-    const input = document.getElementById("photoInput");
-    if (input) input.value = "";
+      _photoCache.unshift({
+        id,
+        ...photo
+      });
 
-    renderPhotos();
+      const input = document.getElementById("photoInput");
+      if (input) input.value = "";
+
+      renderPhotos();
+    } catch (err) {
+      console.error("Photo save failed:", err);
+      alert("Photo save failed.");
+    }
   };
 
   reader.readAsDataURL(file);
 }
 
-function deletePhoto(id) {
-  const items = getStoredData("bryantos_photos", []).filter(item => item.id !== id);
-  setStoredData("bryantos_photos", items);
-  renderPhotos();
+async function deletePhoto(id) {
+  const photoId = String(id);
+
+  try {
+    await deleteDoc(doc(db, "users", _uid, "photos", photoId));
+    _photoCache = _photoCache.filter(item => String(item.id) !== photoId);
+    renderPhotos();
+  } catch (err) {
+    console.error("Photo delete failed:", err);
+  }
 }
 
 function renderPhotos() {
   const list = document.getElementById("photoList");
   if (!list) return;
 
-  const items = getFilteredItems("bryantos_photos");
+  const items = getFilteredPhotos();
   list.innerHTML = "";
 
   items.forEach(item => {
@@ -392,10 +483,10 @@ function renderPhotos() {
         <div class="photo-meta">
           <span>${escapeHtml(item.name)}</span>
           <div class="list-actions">
-            <select onchange="moveItem('bryantos_photos', ${item.id}, this.value)">
+            <select onchange="moveItem('bryantos_photos', '${escapeAttribute(item.id)}', this.value)">
               ${buildFolderOptions(item.folder)}
             </select>
-            <button onclick="deletePhoto(${item.id})">Delete</button>
+            <button onclick="deletePhoto('${escapeAttribute(item.id)}')">Delete</button>
           </div>
         </div>
       </div>
@@ -406,7 +497,7 @@ function renderPhotos() {
   runSearch();
 }
 
-/* Mail */
+// ── Mail ─────────────────────────────────────────────────────────────────────
 function addMail() {
   const input = document.getElementById("mailInput");
   if (!input) return;
@@ -457,7 +548,7 @@ function renderMail() {
   runSearch();
 }
 
-/* Money */
+// ── Money ────────────────────────────────────────────────────────────────────
 function addMoney() {
   const descInput = document.getElementById("moneyDesc");
   const amountInput = document.getElementById("moneyAmount");
@@ -518,7 +609,7 @@ function renderMoney() {
   runSearch();
 }
 
-/* Bills */
+// ── Bills ────────────────────────────────────────────────────────────────────
 function addBill() {
   const input = document.getElementById("billInput");
   if (!input) return;
@@ -584,7 +675,7 @@ function renderBills() {
   runSearch();
 }
 
-/* Links */
+// ── Links ────────────────────────────────────────────────────────────────────
 function addLink() {
   const input = document.getElementById("linkInput");
   if (!input) return;
@@ -644,7 +735,7 @@ function renderLinks() {
   runSearch();
 }
 
-/* Vault */
+// ── Vault ────────────────────────────────────────────────────────────────────
 function addCode() {
   const input = document.getElementById("codeInput");
   if (!input) return;
@@ -695,7 +786,7 @@ function renderCodes() {
   runSearch();
 }
 
-/* Calendar */
+// ── Calendar ─────────────────────────────────────────────────────────────────
 function addEvent() {
   const dateInput = document.getElementById("dateInput");
   const eventInput = document.getElementById("eventInput");
@@ -750,7 +841,7 @@ function renderEvents() {
   runSearch();
 }
 
-/* Contacts */
+// ── Contacts ─────────────────────────────────────────────────────────────────
 function addContact() {
   const nameInput = document.getElementById("contactName");
   const numberInput = document.getElementById("contactNumber");
