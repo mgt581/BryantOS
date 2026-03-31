@@ -99,6 +99,20 @@ async function handleSignedInUser(user, shouldRedirect = false) {
   }
 }
 
+function updateAuthButton(isSignedIn) {
+  const btn = document.getElementById("authBtn");
+  if (!btn) return;
+  if (isSignedIn) {
+    btn.textContent = "Sign Out";
+    btn.setAttribute("aria-label", "Sign out of your account");
+    btn.onclick = () => window.logoutBryantOS();
+  } else {
+    btn.textContent = "Sign In";
+    btn.setAttribute("aria-label", "Sign in to your account");
+    btn.onclick = () => { window.location.href = "/BryantOS/signin.html"; };
+  }
+}
+
 if (signInBtn) {
   signInBtn.addEventListener("click", async () => {
     try {
@@ -114,6 +128,8 @@ if (signInBtn) {
     }
   });
 }
+
+updateAuthButton(false);
 
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
@@ -132,6 +148,7 @@ onAuthStateChanged(auth, async (user) => {
   }
 
   await handleSignedInUser(user, false);
+  updateAuthButton(true);
 });
 
 window.logoutBryantOS = async function logoutBryantOS() {
