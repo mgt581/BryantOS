@@ -1,5 +1,4 @@
 import {
-  signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
   signOut,
@@ -23,14 +22,6 @@ function getFriendlyErrorMessage(error) {
   const code = error?.code || "";
   const message = error?.message || "Something went wrong.";
 
-  if (code === "auth/popup-closed-by-user") {
-    return "Sign-in popup was closed before finishing.";
-  }
-
-  if (code === "auth/popup-blocked") {
-    return "Popup was blocked by your browser. Allow popups and try again.";
-  }
-
   if (code === "auth/unauthorized-domain") {
     return "This domain is not authorised in Firebase yet.";
   }
@@ -47,10 +38,6 @@ function isHomePage() {
     window.location.pathname.endsWith("/BryantOS/") ||
     window.location.pathname.endsWith("index.html")
   );
-}
-
-function isMobileDevice() {
-  return /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent);
 }
 
 async function syncUserToBackend(user) {
@@ -121,28 +108,19 @@ function updateAuthButton(isSignedIn) {
   }
 }
 
+updateAuthButton(false);
+
 if (signInBtn) {
   signInBtn.addEventListener("click", async () => {
     try {
       setStatus("Signing in...");
-
-      if (isMobileDevice()) {
-        await signInWithRedirect(auth, provider);
-        return;
-      }
-
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-
-      await handleSignedInUser(user, true);
+      await signInWithRedirect(auth, provider);
     } catch (error) {
       console.error("Login error:", error);
       setStatus(`Login failed: ${getFriendlyErrorMessage(error)}`, true);
     }
   });
 }
-
-updateAuthButton(false);
 
 if (isSignInPage()) {
   getRedirectResult(auth)
