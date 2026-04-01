@@ -1,5 +1,7 @@
 import {
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
@@ -47,6 +49,10 @@ function isHomePage() {
   );
 }
 
+function isMobileDevice() {
+  return /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent);
+}
+
 async function syncUserToBackend(user) {
   const idToken = await user.getIdToken();
 
@@ -89,8 +95,7 @@ async function handleSignedInUser(user, shouldRedirect = false) {
     await syncUserToBackend(user);
     setStatus("Success.");
   } catch (error) {
-    console.error("Backend sync failed:", error);
-    hasSyncedCurrentUser = false;
+    console.error("Backend sync failed but login continuing:", error);
     setStatus("Signed in. Account sync unavailable.");
   }
 
@@ -102,6 +107,7 @@ async function handleSignedInUser(user, shouldRedirect = false) {
 function updateAuthButton(isSignedIn) {
   const btn = document.getElementById("authBtn");
   if (!btn) return;
+
   if (isSignedIn) {
     btn.textContent = "Sign Out";
     btn.setAttribute("aria-label", "Sign out of your account");
@@ -109,7 +115,9 @@ function updateAuthButton(isSignedIn) {
   } else {
     btn.textContent = "Sign In";
     btn.setAttribute("aria-label", "Sign in to your account");
-    btn.onclick = () => { window.location.href = "/BryantOS/signin.html"; };
+    btn.onclick = () => {
+      window.location.href = "/BryantOS/signin.html";
+    };
   }
 }
 
@@ -117,6 +125,11 @@ if (signInBtn) {
   signInBtn.addEventListener("click", async () => {
     try {
       setStatus("Signing in...");
+
+      if (isMobileDevice()) {
+        await signInWithRedirect(auth, provider);
+        return;
+      }
 
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
@@ -131,9 +144,23 @@ if (signInBtn) {
 
 updateAuthButton(false);
 
+if (isSignInPage()) {
+  getRedirectResult(auth)
+    .then(async (result) => {
+      if (result?.user) {
+        await handleSignedInUser(result.user, true);
+      }
+    })
+    .catch((error) => {
+      console.error("Redirect login error:", error);
+      setStatus(`Login failed: ${getFriendlyErrorMessage(error)}`, true);
+    });
+}
+
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
     hasSyncedCurrentUser = false;
+    updateAuthButton(false);
 
     if (isHomePage()) {
       window.location.href = "/BryantOS/signin.html";
@@ -142,13 +169,14 @@ onAuthStateChanged(auth, async (user) => {
     return;
   }
 
+  updateAuthButton(true);
+
   if (isSignInPage()) {
     await handleSignedInUser(user, true);
     return;
   }
 
   await handleSignedInUser(user, false);
-  updateAuthButton(true);
 });
 
 window.logoutBryantOS = async function logoutBryantOS() {
