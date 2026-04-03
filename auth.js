@@ -50,31 +50,7 @@ function isHomePage() {
   );
 }
 
-async function syncUserToBackend(user) {
-  const idToken = await user.getIdToken();
-
-  const response = await fetch("https://bryantos.alexbryant.workers.dev/api/auth/firebase-login", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${idToken}`
-    },
-    body: JSON.stringify({
-      uid: user.uid,
-      email: user.email || "",
-      name: user.displayName || "",
-      photoURL: user.photoURL || ""
-    })
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || "Backend sync failed");
-  }
-
-  return response.json();
-}
-
+// TEMP: backend sync bypassed for now
 async function handleSignedInUser(user, shouldRedirect = false) {
   if (!user) return;
 
@@ -88,16 +64,17 @@ async function handleSignedInUser(user, shouldRedirect = false) {
   hasSyncedCurrentUser = true;
 
   try {
-    setStatus("Syncing account...");
-    await syncUserToBackend(user);
+    setStatus("Signing in...");
+    console.log("Skipping backend sync for now");
     setStatus("Success.");
   } catch (error) {
-    console.error("Backend sync failed but login continuing:", error);
-    setStatus("Signed in. Account sync unavailable.");
+    console.error("Temporary sync bypass error:", error);
   }
 
   if (shouldRedirect) {
-    goToHome();
+    setTimeout(() => {
+      goToHome();
+    }, 500);
   }
 }
 
