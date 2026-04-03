@@ -11,6 +11,15 @@ const signInBtn = document.getElementById("googleSignInBtn");
 const statusEl = document.getElementById("authStatus");
 
 let hasSyncedCurrentUser = false;
+const BASE_PATH = window.location.hostname === "mgt581.github.io" ? "/BryantOS" : "";
+
+function goToHome() {
+  window.location.href = `${BASE_PATH}/index.html`;
+}
+
+function goToSignIn() {
+  window.location.href = `${BASE_PATH}/signin.html`;
+}
 
 function setStatus(message, isError = false) {
   if (!statusEl) return;
@@ -36,6 +45,7 @@ function isSignInPage() {
 function isHomePage() {
   return (
     window.location.pathname.endsWith("/BryantOS/") ||
+    window.location.pathname.endsWith("/") ||
     window.location.pathname.endsWith("index.html")
   );
 }
@@ -70,7 +80,7 @@ async function handleSignedInUser(user, shouldRedirect = false) {
 
   if (hasSyncedCurrentUser) {
     if (shouldRedirect) {
-      window.location.href = "/BryantOS/index.html";
+      goToHome();
     }
     return;
   }
@@ -87,7 +97,7 @@ async function handleSignedInUser(user, shouldRedirect = false) {
   }
 
   if (shouldRedirect) {
-    window.location.href = "/BryantOS/index.html";
+    goToHome();
   }
 }
 
@@ -103,7 +113,7 @@ function updateAuthButton(isSignedIn) {
     btn.textContent = "Sign In";
     btn.setAttribute("aria-label", "Sign in to your account");
     btn.onclick = () => {
-      window.location.href = "/BryantOS/signin.html";
+      goToSignIn();
     };
   }
 }
@@ -141,7 +151,7 @@ onAuthStateChanged(auth, async (user) => {
     updateAuthButton(false);
 
     if (isHomePage()) {
-      window.location.href = "/BryantOS/signin.html";
+      goToSignIn();
     }
 
     return;
@@ -161,7 +171,7 @@ window.logoutBryantOS = async function logoutBryantOS() {
   try {
     await signOut(auth);
     hasSyncedCurrentUser = false;
-    window.location.href = "/BryantOS/signin.html";
+    goToSignIn();
   } catch (error) {
     console.error("Logout error:", error);
     setStatus(`Logout failed: ${getFriendlyErrorMessage(error)}`, true);
