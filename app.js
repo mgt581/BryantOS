@@ -753,3 +753,37 @@ document.addEventListener("DOMContentLoaded", function() {
   renderContacts();
   runSearch();
 });
+
+// Expose functions on window so inline onclick handlers and sibling ES modules can call them
+window.showSection = showSection;
+window.changeFolder = changeFolder;
+window.addFolder = addFolder;
+window.deleteCurrentFolder = deleteCurrentFolder;
+window.saveNotes = saveNotes;
+window.addPhoto = addPhoto;
+window.deletePhoto = deletePhoto;
+window.renderPhotos = renderPhotos;
+window.addMail = addMail;
+window.deleteMail = deleteMail;
+window.addMoney = addMoney;
+window.deleteMoney = deleteMoney;
+window.addBill = addBill;
+window.toggleBill = toggleBill;
+window.deleteBill = deleteBill;
+window.addLink = addLink;
+window.deleteLink = deleteLink;
+window.addCode = addCode;
+window.deleteCode = deleteCode;
+window.addEvent = addEvent;
+window.deleteEvent = deleteEvent;
+window.addContact = addContact;
+window.deleteContact = deleteContact;
+window.moveItem = moveItem;
+window.runSearch = runSearch;
+window.getCurrentFolder = getCurrentFolder;
+window.getStoredData = getStoredData;
+window.setStoredData = setStoredData;
+window.getFilteredItems = getFilteredItems;
+window.buildFolderOptions = buildFolderOptions;
+window.escapeHtml = escapeHtml;
+window.escapeAttribute = escapeAttribute;
