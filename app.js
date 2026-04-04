@@ -269,6 +269,11 @@ function addPhotoFolder() {}
 function selectPhotoFolder() {}
 
 function renderPhotos() {
+  if (typeof window.renderPhotos === "function" && window.renderPhotos !== renderPhotos) {
+    window.renderPhotos();
+    return;
+  }
+
   const list = document.getElementById("photoList");
   if (!list) return;
 
