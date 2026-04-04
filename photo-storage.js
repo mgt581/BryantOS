@@ -347,19 +347,7 @@ window.renderPhotos = function renderPhotos() {
     list.appendChild(tabLi);
   }
 
-  /* ── No folder selected / no folders yet ── */
-  if (!activeFolder) {
-    const emptyLi = document.createElement("li");
-    emptyLi.className = "list-empty";
-    emptyLi.textContent = photoFolders.length
-      ? "Select a photo folder above to view photos."
-      : "Create a photo folder to get started.";
-    list.appendChild(emptyLi);
-    window.runSearch?.();
-    return;
-  }
-
-  /* ── Upload input (only shown when a subfolder is active) ── */
+  /* ── Upload input (always shown) ── */
   const uploadLi = document.createElement("li");
   uploadLi.className = "photo-upload-row";
   const fileInput = document.createElement("input");
@@ -376,6 +364,18 @@ window.renderPhotos = function renderPhotos() {
   uploadLi.appendChild(fileInput);
   uploadLi.appendChild(uploadLabel);
   list.appendChild(uploadLi);
+
+  /* ── No folder selected / no folders yet ── */
+  if (!activeFolder) {
+    const emptyLi = document.createElement("li");
+    emptyLi.className = "list-empty";
+    emptyLi.textContent = photoFolders.length
+      ? "Select a photo folder above to view photos."
+      : "Create a photo folder to get started.";
+    list.appendChild(emptyLi);
+    window.runSearch?.();
+    return;
+  }
 
   /* ── Empty state ── */
   if (!photos.length) {
