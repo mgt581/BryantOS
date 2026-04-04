@@ -193,7 +193,7 @@ window.addPhoto = async function addPhoto(event) {
     try {
       const tempId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       const safeName = sanitiseFilePart(file.name) || `photo-${tempId}.jpg`;
-      const storagePath = `users/${user.uid}/photos/${safeMain}/${safePhoto}/${tempId}-${safeName}`;
+      const storagePath = `users/${user.uid}/${safeMain}/${safePhoto}/${tempId}-${safeName}`;
       const fileRef = ref(storage, storagePath);
 
       await uploadBytes(fileRef, file);
@@ -341,7 +341,7 @@ window.renderPhotos = function renderPhotos() {
       btn.className = "photo-folder-tab" + (f.name === activeFolder ? " active" : "");
       btn.textContent = f.name;
       btn.dataset.folder = f.name;
-      btn.addEventListener("click", () => selectPhotoFolder(btn.dataset.folder));
+      btn.addEventListener("click", () => window.selectPhotoFolder(btn.dataset.folder));
       tabLi.appendChild(btn);
     });
     list.appendChild(tabLi);
