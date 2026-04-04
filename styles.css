@@ -378,6 +378,25 @@ ul {
   margin-bottom: 16px;
 }
 
+.upload-label {
+  display: inline-block;
+  margin-top: 0;
+  padding: 12px 20px;
+  background: linear-gradient(180deg, var(--accent) 0%, #0ea5e9 100%);
+  color: #04111d;
+  border: none;
+  border-radius: 14px;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: filter 0.2s ease, transform 0.2s ease;
+}
+
+.upload-label:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
 .photo-folder-tabs {
   list-style: none;
   display: flex;

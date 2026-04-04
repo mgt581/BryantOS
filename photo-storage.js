@@ -367,8 +367,14 @@ window.renderPhotos = function renderPhotos() {
   fileInput.id = "photoInput";
   fileInput.accept = "image/*";
   fileInput.multiple = true;
+  fileInput.style.display = "none";
   fileInput.addEventListener("change", event => window.addPhoto(event));
+  const uploadLabel = document.createElement("label");
+  uploadLabel.htmlFor = "photoInput";
+  uploadLabel.className = "upload-label";
+  uploadLabel.textContent = "Upload Photos";
   uploadLi.appendChild(fileInput);
+  uploadLi.appendChild(uploadLabel);
   list.appendChild(uploadLi);
 
   /* ── Empty state ── */
