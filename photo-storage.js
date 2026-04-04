@@ -1,4 +1,5 @@
 import { auth } from "./firebase-init.js";
+import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
 import {
   getStorage,
   ref,
@@ -6,8 +7,18 @@ import {
   getDownloadURL,
   deleteObject
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-storage.js";
+import {
+  getFirestore,
+  collection,
+  addDoc,
+  getDocs,
+  deleteDoc,
+  doc,
+  updateDoc
+} from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 
 const storage = getStorage();
+const db = getFirestore();
 
 /* Helpers */
 function sanitiseFilePart(value) {
@@ -24,9 +35,34 @@ function sanitiseFolderPart(value) {
     .replace(/[^a-zA-Z0-9_-]/g, "");
 }
 
-function makePhotoId() {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+/* Sync all photos from Firestore into localStorage cache */
+async function syncPhotosFromFirestore(uid) {
+  try {
+    const snapshot = await getDocs(collection(db, `users/${uid}/photos`));
+    const photos = [];
+    snapshot.forEach(docSnap => {
+      photos.push({ id: docSnap.id, ...docSnap.data() });
+    });
+    photos.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    window.setStoredData("bryantos_photos", photos);
+  } catch (error) {
+    console.error("Failed to sync photos from Firestore:", error);
+  }
 }
+
+/* On sign-in: load photos from Firestore. On sign-out: clear photo cache. */
+onAuthStateChanged(auth, async (user) => {
+  if (user) {
+    await syncPhotosFromFirestore(user.uid);
+  } else {
+    window.setStoredData("bryantos_photos", []);
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => window.renderPhotos(), { once: true });
+  } else {
+    window.renderPhotos();
+  }
+});
 
 /* Upload Photo(s) */
 window.addPhoto = async function addPhoto(event) {
@@ -49,22 +85,24 @@ window.addPhoto = async function addPhoto(event) {
 
   for (const file of files) {
     try {
-      const id = makePhotoId();
-      const safeName = sanitiseFilePart(file.name) || `photo-${id}.jpg`;
-      const storagePath = `users/${user.uid}/photos/${safeFolder}/${id}-${safeName}`;
+      const tempId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const safeName = sanitiseFilePart(file.name) || `photo-${tempId}.jpg`;
+      const storagePath = `users/${user.uid}/photos/${safeFolder}/${tempId}-${safeName}`;
       const fileRef = ref(storage, storagePath);
 
       await uploadBytes(fileRef, file);
       const url = await getDownloadURL(fileRef);
 
-      uploadedItems.push({
-        id,
+      const photoData = {
         folder: currentFolder,
         name: file.name,
         url,
         storagePath,
         createdAt: Date.now()
-      });
+      };
+
+      const docRef = await addDoc(collection(db, `users/${user.uid}/photos`), photoData);
+      uploadedItems.push({ id: docRef.id, ...photoData });
     } catch (error) {
       console.error(`Photo upload failed for ${file.name}:`, error);
       failedFiles.push(file.name);
@@ -87,6 +125,7 @@ window.addPhoto = async function addPhoto(event) {
 
 /* Delete Photo */
 window.deletePhoto = async function deletePhoto(id) {
+  const user = auth.currentUser;
   const items = window.getStoredData("bryantos_photos", []);
   const photo = items.find(item => String(item.id) === String(id));
   const updated = items.filter(item => String(item.id) !== String(id));
@@ -100,54 +139,35 @@ window.deletePhoto = async function deletePhoto(id) {
     console.error("Storage delete failed:", error);
   }
 
+  try {
+    if (user) {
+      await deleteDoc(doc(db, `users/${user.uid}/photos`, String(id)));
+    }
+  } catch (error) {
+    console.error("Firestore delete failed:", error);
+  }
+
   window.setStoredData("bryantos_photos", updated);
   window.renderPhotos();
 };
 
-/* Render Photos */
-window.renderPhotos = function renderPhotos() {
-  const list = document.getElementById("photoList");
-  if (!list) return;
+/* Move Photo to a different folder */
+window.movePhotoToFolder = async function movePhotoToFolder(id, newFolder) {
+  const user = auth.currentUser;
 
-  const items = window.getFilteredItems("bryantos_photos");
-  list.innerHTML = "";
+  const items = window.getStoredData("bryantos_photos", []);
+  const updated = items.map(item =>
+    String(item.id) === String(id) ? { ...item, folder: newFolder } : item
+  );
+  window.setStoredData("bryantos_photos", updated);
 
-  if (!items.length) {
-    list.innerHTML = `<li class="list-empty">No photos in this folder yet.</li>`;
-    window.runSearch();
-    return;
+  try {
+    if (user) {
+      await updateDoc(doc(db, `users/${user.uid}/photos`, String(id)), { folder: newFolder });
+    }
+  } catch (error) {
+    console.error("Firestore move failed:", error);
   }
 
-  items.forEach(item => {
-    const li = document.createElement("li");
-    li.className = "photo-item";
-
-    li.innerHTML = `
-      <div class="photo-card">
-        <img
-          src="${window.escapeAttribute(item.url || "")}"
-          alt="${window.escapeAttribute(item.name || "Photo")}"
-          class="photo-preview"
-        >
-
-        <div class="photo-meta">
-          <span>${window.escapeHtml(item.name || "Untitled photo")}</span>
-
-          <div class="list-actions">
-            <select onchange="moveItem('bryantos_photos', '${window.escapeAttribute(String(item.id))}', this.value)">
-              ${window.buildFolderOptions(item.folder)}
-            </select>
-
-            <button onclick="deletePhoto('${window.escapeAttribute(String(item.id))}')">
-              Delete
-            </button>
-          </div>
-        </div>
-      </div>
-    `;
-
-    list.appendChild(li);
-  });
-
-  window.runSearch();
+  window.renderPhotos();
 };
