@@ -64,6 +64,12 @@ function setCurrentPhotoFolder(name) {
 window.getCurrentPhotoFolder = getCurrentPhotoFolder;
 window.setCurrentPhotoFolder = setCurrentPhotoFolder;
 
+/* Attach the change listener to the static photoInput element in the HTML. */
+const photoInputEl = document.getElementById("photoInput");
+if (photoInputEl) {
+  photoInputEl.addEventListener("change", event => window.addPhoto(event));
+}
+
 /* ── Firestore sync ─────────────────────────────────────────────────────── */
 
 async function syncPhotoFoldersFromFirestore(uid) {
@@ -346,24 +352,6 @@ window.renderPhotos = function renderPhotos() {
     });
     list.appendChild(tabLi);
   }
-
-  /* ── Upload input (always shown) ── */
-  const uploadLi = document.createElement("li");
-  uploadLi.className = "photo-upload-row";
-  const fileInput = document.createElement("input");
-  fileInput.type = "file";
-  fileInput.id = "photoInput";
-  fileInput.accept = "image/*";
-  fileInput.multiple = true;
-  fileInput.style.display = "none";
-  fileInput.addEventListener("change", event => window.addPhoto(event));
-  const uploadLabel = document.createElement("label");
-  uploadLabel.htmlFor = "photoInput";
-  uploadLabel.className = "upload-label";
-  uploadLabel.textContent = "Upload Photos";
-  uploadLi.appendChild(fileInput);
-  uploadLi.appendChild(uploadLabel);
-  list.appendChild(uploadLi);
 
   /* ── No folder selected / no folders yet ── */
   if (!activeFolder) {
