@@ -1,6 +1,5 @@
 import {
-  signInWithRedirect,
-  getRedirectResult,
+  signInWithPopup,
   signOut,
   onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
@@ -33,6 +32,14 @@ function getFriendlyErrorMessage(error) {
 
   if (code === "auth/unauthorized-domain") {
     return "This domain is not authorised in Firebase yet.";
+  }
+
+  if (code === "auth/popup-closed-by-user") {
+    return "Sign-in popup was closed before finishing.";
+  }
+
+  if (code === "auth/popup-blocked") {
+    return "Popup was blocked by the browser.";
   }
 
   return message;
@@ -101,25 +108,16 @@ if (signInBtn) {
   signInBtn.addEventListener("click", async () => {
     try {
       setStatus("Signing in...");
-      await signInWithRedirect(auth, provider);
+      const result = await signInWithPopup(auth, provider);
+
+      if (result?.user) {
+        await handleSignedInUser(result.user, true);
+      }
     } catch (error) {
       console.error("Login error:", error);
       setStatus(`Login failed: ${getFriendlyErrorMessage(error)}`, true);
     }
   });
-}
-
-if (isSignInPage()) {
-  getRedirectResult(auth)
-    .then(async (result) => {
-      if (result?.user) {
-        await handleSignedInUser(result.user, true);
-      }
-    })
-    .catch((error) => {
-      console.error("Redirect login error:", error);
-      setStatus(`Login failed: ${getFriendlyErrorMessage(error)}`, true);
-    });
 }
 
 onAuthStateChanged(auth, async (user) => {
