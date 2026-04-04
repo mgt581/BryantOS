@@ -373,6 +373,10 @@ ul {
   margin-bottom: 12px;
 }
 
+.photo-input-hidden {
+  display: none;
+}
+
 .photo-upload-row {
   list-style: none;
   margin-bottom: 16px;
