@@ -261,37 +261,10 @@ function loadNotes() {
   if (notesInput) notesInput.value = savedNotes;
 }
 
-/* Photos */
-function addPhoto(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-
-  const reader = new FileReader();
-  reader.onload = function(e) {
-    const items = getStoredData("bryantos_photos", []);
-    items.unshift({
-      id: Date.now(),
-      folder: getCurrentFolder(),
-      name: file.name,
-      data: e.target.result
-    });
-
-    setStoredData("bryantos_photos", items);
-
-    const input = document.getElementById("photoInput");
-    if (input) input.value = "";
-
-    renderPhotos();
-  };
-
-  reader.readAsDataURL(file);
-}
-
-function deletePhoto(id) {
-  const items = getStoredData("bryantos_photos", []).filter(item => item.id !== id);
-  setStoredData("bryantos_photos", items);
-  renderPhotos();
-}
+/* Photos - handled by photo-storage.js module */
+function addPhoto() {}
+function deletePhoto() {}
+function movePhotoToFolder() {}
 
 function renderPhotos() {
   const list = document.getElementById("photoList");
@@ -300,19 +273,27 @@ function renderPhotos() {
   const items = getFilteredItems("bryantos_photos");
   list.innerHTML = "";
 
+  if (!items.length) {
+    list.innerHTML = `<li class="list-empty">No photos in this folder yet.</li>`;
+    runSearch();
+    return;
+  }
+
   items.forEach(item => {
+    const imgSrc = item.url || item.data || "";
+    const itemId = escapeAttribute(String(item.id));
     const li = document.createElement("li");
     li.className = "photo-item";
     li.innerHTML = `
       <div class="photo-card">
-        <img src="${item.data}" alt="${escapeAttribute(item.name)}" class="photo-preview">
+        <img src="${escapeAttribute(imgSrc)}" alt="${escapeAttribute(item.name || "Photo")}" class="photo-preview">
         <div class="photo-meta">
-          <span>${escapeHtml(item.name)}</span>
+          <span>${escapeHtml(item.name || "Untitled photo")}</span>
           <div class="list-actions">
-            <select onchange="moveItem('bryantos_photos', ${item.id}, this.value)">
+            <select onchange="movePhotoToFolder('${itemId}', this.value)">
               ${buildFolderOptions(item.folder)}
             </select>
-            <button onclick="deletePhoto(${item.id})">Delete</button>
+            <button onclick="deletePhoto('${itemId}')">Delete</button>
           </div>
         </div>
       </div>
