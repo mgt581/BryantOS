@@ -48,16 +48,14 @@ function escAttr(value) {
 /* ── Current-photo-folder state (per main niche folder) ─────────────────── */
 
 function getCurrentPhotoFolder() {
-  const main = window.getCurrentFolder?.() || "default";
-  return localStorage.getItem(`bryantos_current_photo_folder_${main}`) || null;
+  return localStorage.getItem("bryantos_photo_folder") || null;
 }
 
 function setCurrentPhotoFolder(name) {
-  const main = window.getCurrentFolder?.() || "default";
   if (name) {
-    localStorage.setItem(`bryantos_current_photo_folder_${main}`, name);
+    localStorage.setItem("bryantos_photo_folder", name);
   } else {
-    localStorage.removeItem(`bryantos_current_photo_folder_${main}`);
+    localStorage.removeItem("bryantos_photo_folder");
   }
 }
 
@@ -146,17 +144,30 @@ window.addPhotoFolder = async function addPhotoFolder() {
     return;
   }
 
-  const folderData = { mainFolder, name, createdAt: Date.now() };
+  const tempId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const folderData = { id: tempId, mainFolder, name, createdAt: Date.now() };
 
+  /* Update localStorage and UI immediately so the folder is usable right away */
+  window.setStoredData("bryantos_photo_folders", [...allFolders, folderData]);
+  input.value = "";
+  setCurrentPhotoFolder(name);
+  window.renderPhotos();
+
+  /* Persist to Firestore in the background */
   try {
-    const docRef = await addDoc(collection(db, `users/${user.uid}/photoFolders`), folderData);
-    window.setStoredData("bryantos_photo_folders", [...allFolders, { id: docRef.id, ...folderData }]);
-    input.value = "";
-    setCurrentPhotoFolder(name);
-    window.renderPhotos();
+    const docRef = await addDoc(collection(db, `users/${user.uid}/photoFolders`), {
+      mainFolder,
+      name,
+      createdAt: folderData.createdAt,
+    });
+    /* Swap the temporary local ID for the real Firestore document ID */
+    const saved = window.getStoredData("bryantos_photo_folders", []);
+    window.setStoredData(
+      "bryantos_photo_folders",
+      saved.map(f => f.id === tempId ? { ...f, id: docRef.id } : f)
+    );
   } catch (error) {
-    console.error("Failed to create photo folder:", error);
-    alert("Failed to create folder. Please try again.");
+    console.error("Failed to sync photo folder to Firestore:", error);
   }
 };
 
@@ -301,17 +312,18 @@ window.renderPhotos = function renderPhotos() {
   if (!list) return;
 
   const mainFolder = window.getCurrentFolder?.() || "default";
-  const currentPhotoFolder = getCurrentPhotoFolder();
 
   /* Photo subfolders scoped to this niche folder */
   const allPhotoFolders = window.getStoredData("bryantos_photo_folders", []);
   const photoFolders = allPhotoFolders.filter(f => f.mainFolder === mainFolder);
 
   /* Validate that the stored selection still exists; clear if not */
+  const currentPhotoFolder = getCurrentPhotoFolder();
   if (currentPhotoFolder && !photoFolders.some(f => f.name === currentPhotoFolder)) {
     setCurrentPhotoFolder(null);
   }
   const activeFolder = getCurrentPhotoFolder();
+  console.log("Active photo folder:", activeFolder);
 
   /* Photos scoped to this niche folder + photo subfolder */
   const allPhotos = window.getStoredData("bryantos_photos", []);
@@ -331,6 +343,7 @@ window.renderPhotos = function renderPhotos() {
   folderInput.type = "text";
   folderInput.placeholder = "New photo folder name";
   const createBtn = document.createElement("button");
+  createBtn.type = "button";
   createBtn.textContent = "Create Folder";
   createBtn.addEventListener("click", () => window.addPhotoFolder());
   folderRow.appendChild(folderInput);
