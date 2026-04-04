@@ -265,6 +265,8 @@ function loadNotes() {
 function addPhoto() {}
 function deletePhoto() {}
 function movePhotoToFolder() {}
+function addPhotoFolder() {}
+function selectPhotoFolder() {}
 
 function renderPhotos() {
   const list = document.getElementById("photoList");
@@ -718,6 +720,14 @@ function escapeHtml(value) {
 function escapeAttribute(value) {
   return String(value).replaceAll('"', "&quot;");
 }
+
+/* Expose utilities for ES module scripts (e.g. photo-storage.js) */
+window.escapeHtml = escapeHtml;
+window.escapeAttribute = escapeAttribute;
+window.getCurrentFolder = getCurrentFolder;
+window.getStoredData = getStoredData;
+window.setStoredData = setStoredData;
+window.runSearch = runSearch;
 
 document.addEventListener("DOMContentLoaded", function() {
   renderFolderDropdown();
