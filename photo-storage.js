@@ -3,7 +3,7 @@ import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/f
 import {
   getStorage,
   ref,
-  uploadBytes,
+  uploadBytesResumable,
   getDownloadURL,
   deleteObject
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-storage.js";
@@ -247,11 +247,16 @@ window.addPhoto = async function addPhoto(event) {
     const storagePath = `users/${user.uid}/photos/${safeFolder}/${safePhotoFolder}/${Date.now()}-${safeName}`;
     console.log("Storage path:", storagePath);
 
+    const UPLOAD_TIMEOUT_MS = 30_000;
+    let timeoutId;
     try {
       const storageRef = ref(storage, storagePath);
       console.log("Uploading file:", file.name);
 
-      await uploadBytes(storageRef, file);
+      const uploadTask = uploadBytesResumable(storageRef, file);
+      timeoutId = setTimeout(() => uploadTask.cancel(), UPLOAD_TIMEOUT_MS);
+      await uploadTask;
+      clearTimeout(timeoutId);
       console.log("Upload success");
 
       const url = await getDownloadURL(storageRef);
@@ -271,11 +276,18 @@ window.addPhoto = async function addPhoto(event) {
       console.log("Firestore save success, id:", docRef.id);
       uploaded.push({ id: docRef.id, ...photoData });
     } catch (error) {
+      if (timeoutId) clearTimeout(timeoutId);
       console.error("Photo upload failed:", error);
+      if (error.code === "storage/canceled") {
+        setUploadStatus(`Upload timed out for "${file.name}". Check your connection and try again.`, "error");
+        continue;
+      }
       const isPermission = error.code === "storage/unauthorized" || error.code === "permission-denied";
-      /* Best-effort CORS detection: Firebase SDK doesn't expose a dedicated CORS error code,
-         so we fall back to checking for a missing code with a network-related message. */
-      const isCors = !error.code && (!error.message || error.message.toLowerCase().includes("network"));
+      /* Best-effort CORS detection: Firebase SDK wraps CORS/network failures as
+         storage/unknown (no code) or fires without a code at all. */
+      const msg = (error.message || "").toLowerCase();
+      const isCors = (error.code === "storage/unknown" || !error.code) &&
+        (!error.message || msg.includes("cors") || msg.includes("network") || msg.includes("fetch"));
       let hint = "";
       if (isPermission) hint = " Check Firebase Storage security rules.";
       else if (isCors) hint = " This may be a CORS or network error — check Firebase Storage CORS settings.";
