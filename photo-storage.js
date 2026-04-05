@@ -180,13 +180,15 @@ window.selectPhotoFolder = function selectPhotoFolder(name) {
 /* ── Upload photos ──────────────────────────────────────────────────────── */
 
 window.addPhoto = async function addPhoto(event) {
+  console.log("addPhoto fired");
+
   const files = Array.from(event.target.files || []);
-  console.log("[addPhoto] files selected:", files.map(f => f.name));
+  console.log("Selected files:", files);
 
   if (!files.length) return;
 
   const user = auth.currentUser;
-  console.log("[addPhoto] auth.currentUser:", user ? user.uid : null);
+  console.log("Current user:", user);
 
   if (!user) {
     alert("Please sign in first.");
@@ -194,42 +196,42 @@ window.addPhoto = async function addPhoto(event) {
     return;
   }
 
-  const mainFolder = window.getCurrentFolder?.() || "default";
-  const photoFolder = getCurrentPhotoFolder();
-  console.log("[addPhoto] mainFolder:", mainFolder, "| photoFolder:", photoFolder);
+  const currentFolder = window.getCurrentFolder();
+  const currentPhotoFolder = window.getCurrentPhotoFolder();
+  console.log("Main folder:", currentFolder);
+  console.log("Photo folder:", currentPhotoFolder);
 
-  if (!photoFolder) {
+  if (!currentPhotoFolder) {
     alert("Please create or select a photo folder first.");
     event.target.value = "";
     return;
   }
 
-  const safeMain = sanitiseFolderPart(mainFolder);
-  const safePhoto = sanitiseFolderPart(photoFolder);
+  const safeFolder = sanitiseFolderPart(currentFolder);
+  const safePhotoFolder = sanitiseFolderPart(currentPhotoFolder);
 
   const existing = window.getStoredData("bryantos_photos", []);
   const uploaded = [];
-  const failed = [];
 
   for (const file of files) {
+    const safeName = sanitiseFilePart(file.name);
+    const storagePath = `users/${user.uid}/photos/${safeFolder}/${safePhotoFolder}/${Date.now()}-${safeName}`;
+    console.log("Storage path:", storagePath);
+
     try {
-      const tempId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-      const safeName = sanitiseFilePart(file.name) || `photo-${tempId}.jpg`;
-      const storagePath = `users/${user.uid}/${safeMain}/${safePhoto}/${tempId}-${safeName}`;
-      console.log("[addPhoto] uploading to path:", storagePath);
+      const storageRef = ref(storage, storagePath);
+      console.log("Uploading file:", file.name);
 
-      const fileRef = ref(storage, storagePath);
+      await uploadBytes(storageRef, file);
+      console.log("Upload success");
 
-      await uploadBytes(fileRef, file);
-      console.log("[addPhoto] uploadBytes succeeded for:", file.name);
-
-      const url = await getDownloadURL(fileRef);
-      console.log("[addPhoto] getDownloadURL succeeded:", url);
+      const url = await getDownloadURL(storageRef);
+      console.log("Download URL:", url);
 
       const photoData = {
         userId: user.uid,
-        mainFolder,
-        photoFolder,
+        mainFolder: currentFolder,
+        photoFolder: currentPhotoFolder,
         name: file.name,
         url,
         storagePath,
@@ -237,11 +239,11 @@ window.addPhoto = async function addPhoto(event) {
       };
 
       const docRef = await addDoc(collection(db, `users/${user.uid}/photos`), photoData);
-      console.log("[addPhoto] Firestore addDoc succeeded, id:", docRef.id);
+      console.log("Firestore save success, id:", docRef.id);
       uploaded.push({ id: docRef.id, ...photoData });
     } catch (error) {
-      console.error(`[addPhoto] Upload failed for ${file.name}:`, error);
-      failed.push(file.name);
+      console.error("Photo upload failed:", error);
+      alert(`Upload failed: ${error.message}`);
     }
   }
 
@@ -250,13 +252,7 @@ window.addPhoto = async function addPhoto(event) {
     window.renderPhotos();
   }
 
-  const input = document.getElementById("photoInput");
-  if (input) input.value = "";
   event.target.value = "";
-
-  if (failed.length) {
-    alert(`Some uploads failed: ${failed.join(", ")}`);
-  }
 };
 
 /* ── Delete photo ───────────────────────────────────────────────────────── */
