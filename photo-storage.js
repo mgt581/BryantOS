@@ -1,4 +1,4 @@
-import { auth } from "./firebase-init.js";
+import { app, auth } from "./firebase-init.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
 import {
   getStorage,
@@ -17,8 +17,8 @@ import {
   updateDoc
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 
-const storage = getStorage();
-const db = getFirestore();
+const storage = getStorage(app);
+const db = getFirestore(app);
 
 /* ── String helpers ─────────────────────────────────────────────────────── */
 
@@ -181,9 +181,13 @@ window.selectPhotoFolder = function selectPhotoFolder(name) {
 
 window.addPhoto = async function addPhoto(event) {
   const files = Array.from(event.target.files || []);
+  console.log("[addPhoto] files selected:", files.map(f => f.name));
+
   if (!files.length) return;
 
   const user = auth.currentUser;
+  console.log("[addPhoto] auth.currentUser:", user ? user.uid : null);
+
   if (!user) {
     alert("Please sign in first.");
     event.target.value = "";
@@ -192,6 +196,7 @@ window.addPhoto = async function addPhoto(event) {
 
   const mainFolder = window.getCurrentFolder?.() || "default";
   const photoFolder = getCurrentPhotoFolder();
+  console.log("[addPhoto] mainFolder:", mainFolder, "| photoFolder:", photoFolder);
 
   if (!photoFolder) {
     alert("Please create or select a photo folder first.");
@@ -211,10 +216,15 @@ window.addPhoto = async function addPhoto(event) {
       const tempId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       const safeName = sanitiseFilePart(file.name) || `photo-${tempId}.jpg`;
       const storagePath = `users/${user.uid}/${safeMain}/${safePhoto}/${tempId}-${safeName}`;
+      console.log("[addPhoto] uploading to path:", storagePath);
+
       const fileRef = ref(storage, storagePath);
 
       await uploadBytes(fileRef, file);
+      console.log("[addPhoto] uploadBytes succeeded for:", file.name);
+
       const url = await getDownloadURL(fileRef);
+      console.log("[addPhoto] getDownloadURL succeeded:", url);
 
       const photoData = {
         userId: user.uid,
@@ -227,9 +237,10 @@ window.addPhoto = async function addPhoto(event) {
       };
 
       const docRef = await addDoc(collection(db, `users/${user.uid}/photos`), photoData);
+      console.log("[addPhoto] Firestore addDoc succeeded, id:", docRef.id);
       uploaded.push({ id: docRef.id, ...photoData });
     } catch (error) {
-      console.error(`Upload failed for ${file.name}:`, error);
+      console.error(`[addPhoto] Upload failed for ${file.name}:`, error);
       failed.push(file.name);
     }
   }
