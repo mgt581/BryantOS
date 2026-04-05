@@ -3,7 +3,7 @@ import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/f
 import {
   getStorage,
   ref,
-  uploadBytesResumable,
+  uploadBytes,
   getDownloadURL,
   deleteObject,
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-storage.js";
@@ -14,7 +14,7 @@ import {
   getDocs,
   deleteDoc,
   doc,
-  updateDoc
+  updateDoc,
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 
 const storage = getStorage(app);
@@ -29,8 +29,9 @@ function sanitiseFilePart(value) {
     .replace(/[^a-zA-Z0-9._-]/g, "");
 }
 
+/* Returns empty string if no valid characters remain — callers must check. */
 function sanitiseFolderPart(value) {
-  return String(value || "default")
+  return String(value || "")
     .trim()
     .replace(/\s+/g, "-")
     .replace(/[^a-zA-Z0-9_-]/g, "");
@@ -42,34 +43,55 @@ function esc(value) {
 }
 
 function escAttr(value) {
-  return window.escapeAttribute ? window.escapeAttribute(value) : String(value).replaceAll('"', "&quot;");
+  return window.escapeAttribute
+    ? window.escapeAttribute(value)
+    : String(value).replaceAll('"', "&quot;");
 }
 
-/* ── Current-photo-folder state (per main niche folder) ─────────────────── */
+/* ── Photo-folder state ─────────────────────────────────────────────────── */
+
+/* Values that must never be used as a folder name. */
+const CORRUPT_VALUES = new Set([
+  "", ",", '","', ".", "undefined", "null", "false", "[]", "{}",
+]);
 
 /**
- * Returns the stored photo-folder name, or null if the stored value is
- * absent, corrupt (e.g. ","), or sanitizes to an empty string.
+ * Reads the active photo-subfolder from localStorage.
+ * Checks every key that may have been written by older versions of this code
+ * so that stale / corrupt entries are cleaned up automatically.
+ * Returns null when no valid folder is selected (not "General") so the UI
+ * can prompt the user to pick or create one.
  */
 function getSafePhotoFolder() {
-  const raw = localStorage.getItem("bryantos_photo_folder");
-  if (!raw) return null;
+  const KEYS = [
+    "bryantos_photo_folder",
+    "bryantos_currentPhotoFolder",
+    "bryantos_selectedPhotoFolder",
+  ];
 
-  const value = String(raw).trim();
+  for (const key of KEYS) {
+    const raw = localStorage.getItem(key);
+    if (raw === null) continue;
 
-  /* Reject known bad values that can end up in localStorage */
-  if (!value || value === "," || value === '","' || value === "undefined" || value === "null") {
-    localStorage.removeItem("bryantos_photo_folder");
-    return null;
+    const value = String(raw).trim();
+
+    if (CORRUPT_VALUES.has(value) || !sanitiseFolderPart(value)) {
+      console.warn(`[PhotoStorage] Removing corrupt value from "${key}":`, JSON.stringify(value));
+      localStorage.removeItem(key);
+      continue;
+    }
+
+    /* Found a valid value — canonicalise it to the primary key and remove
+       any legacy duplicates so we never have two competing keys. */
+    if (key !== "bryantos_photo_folder") {
+      localStorage.setItem("bryantos_photo_folder", value);
+      localStorage.removeItem(key);
+    }
+
+    return value;
   }
 
-  /* Reject values whose sanitized form is empty (e.g. only special chars) */
-  if (!sanitiseFolderPart(value)) {
-    localStorage.removeItem("bryantos_photo_folder");
-    return null;
-  }
-
-  return value;
+  return null;
 }
 
 function getCurrentPhotoFolder() {
@@ -77,7 +99,8 @@ function getCurrentPhotoFolder() {
 }
 
 function setCurrentPhotoFolder(name) {
-  if (name) {
+  /* Only accept names that survive sanitisation. */
+  if (name && sanitiseFolderPart(String(name).trim())) {
     localStorage.setItem("bryantos_photo_folder", name);
   } else {
     localStorage.removeItem("bryantos_photo_folder");
@@ -107,7 +130,7 @@ if (photoInputEl) {
     try {
       await window.addPhoto(event);
     } catch (err) {
-      console.error("Unhandled error in addPhoto:", err);
+      console.error("[PhotoStorage] Unhandled error in addPhoto:", err);
       setUploadStatus("Upload failed: " + (err.message || "Unknown error"), "error");
     }
   });
@@ -124,8 +147,9 @@ async function syncPhotoFoldersFromFirestore(uid) {
     });
     folders.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
     window.setStoredData("bryantos_photo_folders", folders);
+    console.log(`[PhotoStorage] Synced ${folders.length} photo folder(s) from Firestore.`);
   } catch (error) {
-    console.error("Failed to sync photo folders from Firestore:", error);
+    console.error("[PhotoStorage] Failed to sync photo folders from Firestore:", error);
   }
 }
 
@@ -138,16 +162,19 @@ async function syncPhotosFromFirestore(uid) {
     });
     photos.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     window.setStoredData("bryantos_photos", photos);
+    console.log(`[PhotoStorage] Synced ${photos.length} photo(s) from Firestore.`);
   } catch (error) {
-    console.error("Failed to sync photos from Firestore:", error);
+    console.error("[PhotoStorage] Failed to sync photos from Firestore:", error);
   }
 }
 
 /* On sign-in: load everything. On sign-out: clear caches. */
 onAuthStateChanged(auth, async (user) => {
+  console.log("[PhotoStorage] Auth state changed:", user ? `uid=${user.uid}` : "signed out");
+
   /* Render the shell immediately with whatever is in localStorage so the
-     create-folder row, upload area, and tabs container appear on first paint
-     without waiting for Firestore to respond. */
+     create-folder row, upload area, and tabs appear without waiting for
+     Firestore. */
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => window.renderPhotos(), { once: true });
   } else {
@@ -161,13 +188,13 @@ onAuthStateChanged(auth, async (user) => {
     window.setStoredData("bryantos_photo_folders", []);
     window.setStoredData("bryantos_photos", []);
   }
-  /* Re-render after sync to reflect the latest server-side data. */
+
+  /* Re-render after sync to show the latest server-side data. */
   window.renderPhotos();
 });
 
 /* ── Photo subfolder management ─────────────────────────────────────────── */
 
-/* Create a photo subfolder scoped to the current user + niche folder. */
 window.addPhotoFolder = async function addPhotoFolder() {
   const input = document.getElementById("photoFolderInput");
   if (!input) return;
@@ -178,7 +205,6 @@ window.addPhotoFolder = async function addPhotoFolder() {
     return;
   }
 
-  /* Reject names whose sanitized form is empty (e.g. only special chars like ",") */
   if (!sanitiseFolderPart(name)) {
     alert("Folder name must contain at least one letter or number.");
     return;
@@ -204,31 +230,31 @@ window.addPhotoFolder = async function addPhotoFolder() {
   const tempId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const folderData = { id: tempId, mainFolder, name, createdAt: Date.now() };
 
-  /* Update localStorage and UI immediately so the folder is usable right away */
+  /* Update localStorage and UI immediately so the folder is usable right away. */
   window.setStoredData("bryantos_photo_folders", [...allFolders, folderData]);
   input.value = "";
   setCurrentPhotoFolder(name);
   window.renderPhotos();
 
-  /* Persist to Firestore in the background */
+  /* Persist to Firestore in the background. */
   try {
     const docRef = await addDoc(collection(db, `users/${user.uid}/photoFolders`), {
       mainFolder,
       name,
       createdAt: folderData.createdAt,
     });
-    /* Swap the temporary local ID for the real Firestore document ID */
+    /* Swap the temporary local ID for the real Firestore document ID. */
     const saved = window.getStoredData("bryantos_photo_folders", []);
     window.setStoredData(
       "bryantos_photo_folders",
       saved.map(f => f.id === tempId ? { ...f, id: docRef.id } : f)
     );
+    console.log("[PhotoStorage] Photo folder saved to Firestore:", docRef.id);
   } catch (error) {
-    console.error("Failed to sync photo folder to Firestore:", error);
+    console.error("[PhotoStorage] Failed to sync photo folder to Firestore:", error);
   }
 };
 
-/* Switch the active photo subfolder. */
 window.selectPhotoFolder = function selectPhotoFolder(name) {
   setCurrentPhotoFolder(name);
   window.renderPhotos();
@@ -237,15 +263,12 @@ window.selectPhotoFolder = function selectPhotoFolder(name) {
 /* ── Upload photos ──────────────────────────────────────────────────────── */
 
 window.addPhoto = async function addPhoto(event) {
-  console.log("addPhoto fired");
-
   const files = Array.from(event.target.files || []);
-  console.log("Selected files:", files);
-
   if (!files.length) return;
 
+  /* ── 1. Auth guard ── */
   const user = auth.currentUser;
-  console.log("Current user:", user);
+  console.log("[PhotoStorage] addPhoto fired. Auth user:", user ? user.uid : "NOT SIGNED IN");
 
   if (!user) {
     setUploadStatus("Please sign in before uploading photos.", "error");
@@ -253,20 +276,40 @@ window.addPhoto = async function addPhoto(event) {
     return;
   }
 
-  const currentFolder = window.getCurrentFolder();
-  const currentPhotoFolder = window.getCurrentPhotoFolder();
-  console.log("Main folder:", currentFolder);
-  console.log("Photo folder:", currentPhotoFolder);
+  /* ── 2. Folder guards ── */
+  const mainFolder = window.getCurrentFolder?.() || "default";
+  const photoFolder = getSafePhotoFolder();
 
-  if (!currentPhotoFolder) {
+  console.log("[PhotoStorage] Upload state:", {
+    uid: user.uid,
+    mainFolder,
+    photoFolder,
+    fileCount: files.length,
+  });
+
+  if (!photoFolder) {
     setUploadStatus("Please create or select a photo folder first.", "error");
     event.target.value = "";
     return;
   }
 
-  const safeFolder = sanitiseFolderPart(currentFolder);
-  const safePhotoFolder = sanitiseFolderPart(currentPhotoFolder);
+  const safeMain = sanitiseFolderPart(mainFolder);
+  const safePhoto = sanitiseFolderPart(photoFolder);
 
+  if (!safePhoto) {
+    /* This should never happen because getSafePhotoFolder() already guards
+       against it, but we treat it as a hard stop rather than silently
+       constructing a broken path. */
+    setUploadStatus(
+      `Photo folder "${photoFolder}" has an invalid name. ` +
+      "Please create a new folder using letters and numbers only.",
+      "error"
+    );
+    event.target.value = "";
+    return;
+  }
+
+  /* ── 3. Upload each file ── */
   const existing = window.getStoredData("bryantos_photos", []);
   const uploaded = [];
 
@@ -274,92 +317,63 @@ window.addPhoto = async function addPhoto(event) {
     const file = files[i];
     setUploadStatus(`Uploading ${i + 1} of ${files.length}: ${file.name}…`, "info");
 
-    const safeName = sanitiseFilePart(file.name);
-    const storagePath = `users/${user.uid}/photos/${safeFolder}/${safePhotoFolder}/${Date.now()}-${safeName}`;
-    console.log("Storage path:", storagePath);
+    const safeFileName = `${Date.now()}-${sanitiseFilePart(file.name) || "photo"}`;
+    const storagePath = `users/${user.uid}/${safeMain}/${safePhoto}/${safeFileName}`;
+
+    console.log("[PhotoStorage] Starting upload:", {
+      file: file.name,
+      size: file.size,
+      storagePath,
+    });
 
     try {
       const storageRef = ref(storage, storagePath);
-      console.log("Uploading file:", file.name);
+      const snapshot = await uploadBytes(storageRef, file);
+      console.log("[PhotoStorage] Upload success:", snapshot.ref.fullPath);
 
-      /* uploadBytesResumable gives progress callbacks and can be cancelled.
-         A 30-second inactivity timer cancels the task so the upload never
-         hangs indefinitely (e.g. on a CORS / network issue). */
-      const uploadedRef = await new Promise((resolve, reject) => {
-        const task = uploadBytesResumable(storageRef, file);
-        let lastBytes = 0;
-        let stuckTimer = null;
+      const url = await getDownloadURL(snapshot.ref);
+      console.log("[PhotoStorage] Download URL obtained:", url);
 
-        function resetStuckTimer() {
-          clearTimeout(stuckTimer);
-          stuckTimer = null;
-          stuckTimer = setTimeout(() => {
-            stuckTimer = null;
-            task.cancel();
-            reject(new Error("Upload timed out – check your network or Firebase Storage CORS settings."));
-          }, 30000);
-        }
-
-        resetStuckTimer();
-
-        task.on(
-          "state_changed",
-          (snapshot) => {
-            if (snapshot.bytesTransferred > lastBytes) {
-              lastBytes = snapshot.bytesTransferred;
-              resetStuckTimer();
-            }
-            const pct = snapshot.totalBytes
-              ? Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
-              : 0;
-            setUploadStatus(
-              `Uploading ${i + 1} of ${files.length}: ${file.name}… ${pct}%`,
-              "info"
-            );
-          },
-          (error) => {
-            clearTimeout(stuckTimer);
-            stuckTimer = null;
-            reject(error);
-          },
-          () => {
-            clearTimeout(stuckTimer);
-            stuckTimer = null;
-            resolve(task.snapshot.ref);
-          }
-        );
-      });
-      console.log("Upload success");
-
-      const url = await getDownloadURL(uploadedRef);
-      console.log("Download URL:", url);
-
+      /* Exact Firestore schema — field names must match the render filter. */
       const photoData = {
-        userId: user.uid,
-        mainFolder: currentFolder,
-        photoFolder: currentPhotoFolder,
         name: file.name,
         url,
+        mainFolder,
+        photoFolder,
         storagePath,
-        createdAt: Date.now()
+        createdAt: Date.now(),
       };
 
       const docRef = await addDoc(collection(db, `users/${user.uid}/photos`), photoData);
-      console.log("Firestore save success, id:", docRef.id);
+      console.log("[PhotoStorage] Firestore metadata saved, id:", docRef.id);
+
       uploaded.push({ id: docRef.id, ...photoData });
     } catch (error) {
-      console.error("Photo upload failed:", error);
-      const isPermission = error.code === "storage/unauthorized" || error.code === "permission-denied";
-      /* Best-effort CORS detection: Firebase SDK doesn't expose a dedicated CORS error code,
-         so we fall back to checking for a missing code with a network-related message. */
-      const isCors = !error.code && (!error.message || error.message.toLowerCase().includes("network"));
+      console.error("[PhotoStorage] Upload failed for", file.name, "—", error.code, error.message, error);
+
       let hint = "";
-      if (isPermission) hint = " Check Firebase Storage security rules.";
-      else if (isCors) hint = " This may be a CORS or network error — check Firebase Storage CORS settings.";
-      setUploadStatus(`Upload failed for "${file.name}": ${error.message || error.code || "Unknown error"}.${hint}`, "error");
+      if (error.code === "storage/unauthorized" || error.code === "permission-denied") {
+        hint = " Your Firebase Storage security rules are blocking this path. " +
+               "Check that the path starts with users/<your-uid>/…";
+      } else if (error.code === "storage/canceled") {
+        hint = " The upload was cancelled.";
+      } else if (!error.code) {
+        /* No SDK error code usually means a network-level failure (CORS,
+           offline, etc.). Give one clear actionable message. */
+        hint = " This looks like a network or CORS error. " +
+               "Open the browser Network tab and look for a blocked OPTIONS / PUT request. " +
+               "If found, apply cors.json to your bucket: " +
+               "gsutil cors set cors.json gs://YOUR_BUCKET";
+      }
+
+      setUploadStatus(
+        `Upload failed for "${file.name}": ${error.message || error.code || "Unknown error"}.${hint}`,
+        "error"
+      );
     }
   }
 
+  /* ── 4. Commit results ── */
   if (uploaded.length) {
     window.setStoredData("bryantos_photos", [...uploaded, ...existing]);
     setUploadStatus(
@@ -385,17 +399,19 @@ window.deletePhoto = async function deletePhoto(id) {
   try {
     if (photo?.storagePath) {
       await deleteObject(ref(storage, photo.storagePath));
+      console.log("[PhotoStorage] Storage file deleted:", photo.storagePath);
     }
   } catch (error) {
-    console.error("Storage delete failed:", error);
+    console.error("[PhotoStorage] Storage delete failed:", error);
   }
 
   try {
     if (user) {
       await deleteDoc(doc(db, `users/${user.uid}/photos`, String(id)));
+      console.log("[PhotoStorage] Firestore doc deleted:", id);
     }
   } catch (error) {
-    console.error("Firestore delete failed:", error);
+    console.error("[PhotoStorage] Firestore delete failed:", error);
   }
 
   window.setStoredData("bryantos_photos", updated);
@@ -415,9 +431,10 @@ window.movePhotoToFolder = async function movePhotoToFolder(id, newPhotoFolder) 
   try {
     if (user) {
       await updateDoc(doc(db, `users/${user.uid}/photos`, String(id)), { photoFolder: newPhotoFolder });
+      console.log("[PhotoStorage] Photo moved to folder:", newPhotoFolder);
     }
   } catch (error) {
-    console.error("Firestore move failed:", error);
+    console.error("[PhotoStorage] Firestore move failed:", error);
   }
 
   window.renderPhotos();
@@ -426,12 +443,12 @@ window.movePhotoToFolder = async function movePhotoToFolder(id, newPhotoFolder) 
 /* ── Render ─────────────────────────────────────────────────────────────── */
 
 /*
- * This overrides the stub in app.js so that all calls to renderPhotos()
- * (including from refreshFolderState) use this full implementation.
+ * Overrides the stub in app.js so every call to renderPhotos() — including
+ * from refreshFolderState — uses this full implementation.
  *
- * Data structure:
+ * localStorage data structures:
  *   bryantos_photo_folders  – [{id, mainFolder, name, createdAt}]
- *   bryantos_photos         – [{id, userId, mainFolder, photoFolder, name, url, storagePath, createdAt}]
+ *   bryantos_photos         – [{id, name, url, mainFolder, photoFolder, storagePath, createdAt}]
  */
 window.renderPhotos = function renderPhotos() {
   const list = document.getElementById("photoList");
@@ -439,19 +456,17 @@ window.renderPhotos = function renderPhotos() {
 
   const mainFolder = window.getCurrentFolder?.() || "default";
 
-  /* Photo subfolders scoped to this niche folder */
   const allPhotoFolders = window.getStoredData("bryantos_photo_folders", []);
   const photoFolders = allPhotoFolders.filter(f => f.mainFolder === mainFolder);
 
-  /* Validate that the stored selection still exists; clear if not */
-  const currentPhotoFolder = getCurrentPhotoFolder();
-  if (currentPhotoFolder && !photoFolders.some(f => f.name === currentPhotoFolder)) {
+  /* If the stored selection no longer exists in the folder list, clear it. */
+  const storedFolder = getSafePhotoFolder();
+  if (storedFolder && !photoFolders.some(f => f.name === storedFolder)) {
     setCurrentPhotoFolder(null);
   }
-  const activeFolder = getCurrentPhotoFolder();
-  console.log("Active photo folder:", activeFolder);
+  const activeFolder = getSafePhotoFolder();
 
-  /* Photos scoped to this niche folder + photo subfolder */
+  /* Photos that belong to the active main folder + photo subfolder. */
   const allPhotos = window.getStoredData("bryantos_photos", []);
   const photos = activeFolder
     ? allPhotos.filter(p => p.mainFolder === mainFolder && p.photoFolder === activeFolder)
@@ -472,7 +487,7 @@ window.renderPhotos = function renderPhotos() {
   });
   list.appendChild(tabLi);
 
-  /* ── No folder selected / no folders yet ── */
+  /* ── No folder selected / no folders exist yet ── */
   if (!activeFolder) {
     const emptyLi = document.createElement("li");
     emptyLi.className = "list-empty";
@@ -494,14 +509,15 @@ window.renderPhotos = function renderPhotos() {
     return;
   }
 
-  /* ── Build move-to <select> options for this niche folder ── */
+  /* ── Build move-to <select> options ── */
   function buildMoveOptions(currentPF) {
     return photoFolders
-      .map(f => `<option value="${escAttr(f.name)}"${f.name === currentPF ? " selected" : ""}>${esc(f.name)}</option>`)
+      .map(f =>
+        `<option value="${escAttr(f.name)}"${f.name === currentPF ? " selected" : ""}>${esc(f.name)}</option>`
+      )
       .join("");
   }
 
-  /* Valid photo folder names for move validation */
   const validFolderNames = new Set(photoFolders.map(f => f.name));
 
   /* ── Photo cards ── */
@@ -511,7 +527,6 @@ window.renderPhotos = function renderPhotos() {
     const li = document.createElement("li");
     li.className = "photo-item";
 
-    /* Build card HTML (no user-controlled values in event handler strings) */
     li.innerHTML = `
       <div class="photo-card">
         <img src="${escAttr(imgSrc)}" alt="${escAttr(item.name || "Photo")}" class="photo-preview">
@@ -528,8 +543,7 @@ window.renderPhotos = function renderPhotos() {
       </div>
     `;
 
-    const viewBtn = li.querySelector(".js-view-btn");
-    viewBtn.addEventListener("click", () => window.open(imgSrc, "_blank"));
+    li.querySelector(".js-view-btn").addEventListener("click", () => window.open(imgSrc, "_blank"));
 
     const moveSelect = li.querySelector(".js-move-select");
     const originalFolder = item.photoFolder || activeFolder;
@@ -538,13 +552,12 @@ window.renderPhotos = function renderPhotos() {
       if (validFolderNames.has(target)) {
         window.movePhotoToFolder(itemId, target);
       } else {
-        console.warn("Move target folder no longer exists:", target);
+        console.warn("[PhotoStorage] Move target folder no longer exists:", target);
         moveSelect.value = validFolderNames.has(originalFolder) ? originalFolder : activeFolder;
       }
     });
 
-    const deleteBtn = li.querySelector(".js-delete-btn");
-    deleteBtn.addEventListener("click", () => window.deletePhoto(itemId));
+    li.querySelector(".js-delete-btn").addEventListener("click", () => window.deletePhoto(itemId));
 
     list.appendChild(li);
   });
