@@ -120,6 +120,15 @@ async function syncPhotosFromFirestore(uid) {
 
 /* On sign-in: load everything. On sign-out: clear caches. */
 onAuthStateChanged(auth, async (user) => {
+  /* Render the shell immediately with whatever is in localStorage so the
+     create-folder row, upload area, and tabs container appear on first paint
+     without waiting for Firestore to respond. */
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => window.renderPhotos(), { once: true });
+  } else {
+    window.renderPhotos();
+  }
+
   if (user) {
     await syncPhotoFoldersFromFirestore(user.uid);
     await syncPhotosFromFirestore(user.uid);
@@ -127,11 +136,8 @@ onAuthStateChanged(auth, async (user) => {
     window.setStoredData("bryantos_photo_folders", []);
     window.setStoredData("bryantos_photos", []);
   }
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => window.renderPhotos(), { once: true });
-  } else {
-    window.renderPhotos();
-  }
+  /* Re-render after sync to reflect the latest server-side data. */
+  window.renderPhotos();
 });
 
 /* ── Photo subfolder management ─────────────────────────────────────────── */
@@ -377,19 +383,17 @@ window.renderPhotos = function renderPhotos() {
   list.innerHTML = "";
 
   /* ── Subfolder tab bar ── */
-  if (photoFolders.length) {
-    const tabLi = document.createElement("li");
-    tabLi.className = "photo-folder-tabs";
-    photoFolders.forEach(f => {
-      const btn = document.createElement("button");
-      btn.className = "photo-folder-tab" + (f.name === activeFolder ? " active" : "");
-      btn.textContent = f.name;
-      btn.dataset.folder = f.name;
-      btn.addEventListener("click", () => window.selectPhotoFolder(btn.dataset.folder));
-      tabLi.appendChild(btn);
-    });
-    list.appendChild(tabLi);
-  }
+  const tabLi = document.createElement("li");
+  tabLi.className = "photo-folder-tabs";
+  photoFolders.forEach(f => {
+    const btn = document.createElement("button");
+    btn.className = "photo-folder-tab" + (f.name === activeFolder ? " active" : "");
+    btn.textContent = f.name;
+    btn.dataset.folder = f.name;
+    btn.addEventListener("click", () => window.selectPhotoFolder(btn.dataset.folder));
+    tabLi.appendChild(btn);
+  });
+  list.appendChild(tabLi);
 
   /* ── No folder selected / no folders yet ── */
   if (!activeFolder) {
