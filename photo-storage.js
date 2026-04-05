@@ -317,8 +317,8 @@ window.addPhoto = async function addPhoto(event) {
     const file = files[i];
     setUploadStatus(`Uploading ${i + 1} of ${files.length}: ${file.name}…`, "info");
 
-    const safeFileName = `${Date.now()}-${sanitiseFilePart(file.name) || "photo"}`;
-    const storagePath = `users/${user.uid}/${safeMain}/${safePhoto}/${safeFileName}`;
+    const safeFileName = `${Date.now()}-${sanitiseFilePart(file.name) || Math.random().toString(36).slice(2, 10)}`;
+    const storagePath = `users/${user.uid}/photos/${safeMain}/${safePhoto}/${safeFileName}`;
 
     console.log("[PhotoStorage] Starting upload:", {
       file: file.name,
@@ -449,6 +449,8 @@ window.movePhotoToFolder = async function movePhotoToFolder(id, newPhotoFolder) 
  * localStorage data structures:
  *   bryantos_photo_folders  – [{id, mainFolder, name, createdAt}]
  *   bryantos_photos         – [{id, name, url, mainFolder, photoFolder, storagePath, createdAt}]
+ *   (userId is not stored in the Firestore document; the collection path
+ *    users/{uid}/photos already scopes all queries to the signed-in user.)
  */
 window.renderPhotos = function renderPhotos() {
   const list = document.getElementById("photoList");
