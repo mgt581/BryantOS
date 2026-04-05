@@ -376,24 +376,6 @@ window.renderPhotos = function renderPhotos() {
 
   list.innerHTML = "";
 
-  /* ── Create-folder row ── */
-  const createLi = document.createElement("li");
-  createLi.className = "photo-folder-create";
-  const folderRow = document.createElement("div");
-  folderRow.className = "inline-row";
-  const folderInput = document.createElement("input");
-  folderInput.id = "photoFolderInput";
-  folderInput.type = "text";
-  folderInput.placeholder = "New photo folder name";
-  const createBtn = document.createElement("button");
-  createBtn.type = "button";
-  createBtn.textContent = "Create Folder";
-  createBtn.addEventListener("click", () => window.addPhotoFolder());
-  folderRow.appendChild(folderInput);
-  folderRow.appendChild(createBtn);
-  createLi.appendChild(folderRow);
-  list.appendChild(createLi);
-
   /* ── Subfolder tab bar ── */
   if (photoFolders.length) {
     const tabLi = document.createElement("li");

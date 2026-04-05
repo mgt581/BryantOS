@@ -363,14 +363,20 @@ ul {
   color: #ffffff;
 }
 
+.photo-folder-create-static {
+  margin-bottom: 16px;
+}
+
+.photo-subfolder-label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
 .photo-item {
   list-style: none;
   margin-bottom: 14px;
-}
-
-.photo-folder-create {
-  list-style: none;
-  margin-bottom: 12px;
 }
 
 .photo-input-hidden {
