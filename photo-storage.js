@@ -47,8 +47,33 @@ function escAttr(value) {
 
 /* ── Current-photo-folder state (per main niche folder) ─────────────────── */
 
+/**
+ * Returns the stored photo-folder name, or null if the stored value is
+ * absent, corrupt (e.g. ","), or sanitizes to an empty string.
+ */
+function getSafePhotoFolder() {
+  const raw = localStorage.getItem("bryantos_photo_folder");
+  if (!raw) return null;
+
+  const value = String(raw).trim();
+
+  /* Reject known bad values that can end up in localStorage */
+  if (!value || value === "," || value === '","' || value === "undefined" || value === "null") {
+    localStorage.removeItem("bryantos_photo_folder");
+    return null;
+  }
+
+  /* Reject values whose sanitized form is empty (e.g. only special chars) */
+  if (!sanitiseFolderPart(value)) {
+    localStorage.removeItem("bryantos_photo_folder");
+    return null;
+  }
+
+  return value;
+}
+
 function getCurrentPhotoFolder() {
-  return localStorage.getItem("bryantos_photo_folder") || null;
+  return getSafePhotoFolder();
 }
 
 function setCurrentPhotoFolder(name) {
@@ -150,6 +175,12 @@ window.addPhotoFolder = async function addPhotoFolder() {
   const name = input.value.trim();
   if (!name) {
     alert("Enter a folder name.");
+    return;
+  }
+
+  /* Reject names whose sanitized form is empty (e.g. only special chars like ",") */
+  if (!sanitiseFolderPart(name)) {
+    alert("Folder name must contain at least one letter or number.");
     return;
   }
 
