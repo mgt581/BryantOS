@@ -62,10 +62,26 @@ function setCurrentPhotoFolder(name) {
 window.getCurrentPhotoFolder = getCurrentPhotoFolder;
 window.setCurrentPhotoFolder = setCurrentPhotoFolder;
 
+/* ── Upload status helper ───────────────────────────────────────────────── */
+
+function setUploadStatus(message, type /* "info" | "error" | "success" | "" */) {
+  const el = document.getElementById("photoUploadStatus");
+  if (!el) return;
+  el.textContent = message;
+  el.className = "photo-upload-status" + (type ? " photo-upload-status--" + type : "");
+}
+
 /* Attach the change listener to the static photoInput element in the HTML. */
 const photoInputEl = document.getElementById("photoInput");
 if (photoInputEl) {
-  photoInputEl.addEventListener("change", event => window.addPhoto(event));
+  photoInputEl.addEventListener("change", async (event) => {
+    try {
+      await window.addPhoto(event);
+    } catch (err) {
+      console.error("Unhandled error in addPhoto:", err);
+      setUploadStatus("Upload failed: " + (err.message || "Unknown error"), "error");
+    }
+  });
 }
 
 /* ── Firestore sync ─────────────────────────────────────────────────────── */
@@ -191,7 +207,7 @@ window.addPhoto = async function addPhoto(event) {
   console.log("Current user:", user);
 
   if (!user) {
-    alert("Please sign in first.");
+    setUploadStatus("Please sign in before uploading photos.", "error");
     event.target.value = "";
     return;
   }
@@ -202,7 +218,7 @@ window.addPhoto = async function addPhoto(event) {
   console.log("Photo folder:", currentPhotoFolder);
 
   if (!currentPhotoFolder) {
-    alert("Please create or select a photo folder first.");
+    setUploadStatus("Please create or select a photo folder first.", "error");
     event.target.value = "";
     return;
   }
@@ -213,7 +229,10 @@ window.addPhoto = async function addPhoto(event) {
   const existing = window.getStoredData("bryantos_photos", []);
   const uploaded = [];
 
-  for (const file of files) {
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    setUploadStatus(`Uploading ${i + 1} of ${files.length}: ${file.name}…`, "info");
+
     const safeName = sanitiseFilePart(file.name);
     const storagePath = `users/${user.uid}/photos/${safeFolder}/${safePhotoFolder}/${Date.now()}-${safeName}`;
     console.log("Storage path:", storagePath);
@@ -243,12 +262,23 @@ window.addPhoto = async function addPhoto(event) {
       uploaded.push({ id: docRef.id, ...photoData });
     } catch (error) {
       console.error("Photo upload failed:", error);
-      alert(`Upload failed: ${error.message}`);
+      const isPermission = error.code === "storage/unauthorized" || error.code === "permission-denied";
+      const isCors = !error.code && (!error.message || error.message.toLowerCase().includes("network"));
+      let hint = "";
+      if (isPermission) hint = " Check Firebase Storage security rules.";
+      else if (isCors) hint = " This may be a CORS or network error — check Firebase Storage CORS settings.";
+      setUploadStatus(`Upload failed for "${file.name}": ${error.message || error.code || "Unknown error"}.${hint}`, "error");
     }
   }
 
   if (uploaded.length) {
     window.setStoredData("bryantos_photos", [...uploaded, ...existing]);
+    setUploadStatus(
+      uploaded.length === files.length
+        ? `${uploaded.length} photo${uploaded.length > 1 ? "s" : ""} uploaded successfully.`
+        : `${uploaded.length} of ${files.length} photo${files.length > 1 ? "s" : ""} uploaded.`,
+      "success"
+    );
     window.renderPhotos();
   }
 
