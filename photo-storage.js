@@ -1,4 +1,4 @@
-import { auth } from "./firebase-init.js";
+import { app, auth } from "./firebase-init.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
 import {
   getStorage,
@@ -17,8 +17,8 @@ import {
   updateDoc
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 
-const storage = getStorage();
-const db = getFirestore();
+const storage = getStorage(app);
+const db = getFirestore(app);
 
 /* ── String helpers ─────────────────────────────────────────────────────── */
 
@@ -180,46 +180,58 @@ window.selectPhotoFolder = function selectPhotoFolder(name) {
 /* ── Upload photos ──────────────────────────────────────────────────────── */
 
 window.addPhoto = async function addPhoto(event) {
+  console.log("addPhoto fired");
+
   const files = Array.from(event.target.files || []);
+  console.log("Selected files:", files);
+
   if (!files.length) return;
 
   const user = auth.currentUser;
+  console.log("Current user:", user);
+
   if (!user) {
     alert("Please sign in first.");
     event.target.value = "";
     return;
   }
 
-  const mainFolder = window.getCurrentFolder?.() || "default";
-  const photoFolder = getCurrentPhotoFolder();
+  const currentFolder = window.getCurrentFolder();
+  const currentPhotoFolder = window.getCurrentPhotoFolder();
+  console.log("Main folder:", currentFolder);
+  console.log("Photo folder:", currentPhotoFolder);
 
-  if (!photoFolder) {
+  if (!currentPhotoFolder) {
     alert("Please create or select a photo folder first.");
     event.target.value = "";
     return;
   }
 
-  const safeMain = sanitiseFolderPart(mainFolder);
-  const safePhoto = sanitiseFolderPart(photoFolder);
+  const safeFolder = sanitiseFolderPart(currentFolder);
+  const safePhotoFolder = sanitiseFolderPart(currentPhotoFolder);
 
   const existing = window.getStoredData("bryantos_photos", []);
   const uploaded = [];
-  const failed = [];
 
   for (const file of files) {
-    try {
-      const tempId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-      const safeName = sanitiseFilePart(file.name) || `photo-${tempId}.jpg`;
-      const storagePath = `users/${user.uid}/${safeMain}/${safePhoto}/${tempId}-${safeName}`;
-      const fileRef = ref(storage, storagePath);
+    const safeName = sanitiseFilePart(file.name);
+    const storagePath = `users/${user.uid}/photos/${safeFolder}/${safePhotoFolder}/${Date.now()}-${safeName}`;
+    console.log("Storage path:", storagePath);
 
-      await uploadBytes(fileRef, file);
-      const url = await getDownloadURL(fileRef);
+    try {
+      const storageRef = ref(storage, storagePath);
+      console.log("Uploading file:", file.name);
+
+      await uploadBytes(storageRef, file);
+      console.log("Upload success");
+
+      const url = await getDownloadURL(storageRef);
+      console.log("Download URL:", url);
 
       const photoData = {
         userId: user.uid,
-        mainFolder,
-        photoFolder,
+        mainFolder: currentFolder,
+        photoFolder: currentPhotoFolder,
         name: file.name,
         url,
         storagePath,
@@ -227,10 +239,11 @@ window.addPhoto = async function addPhoto(event) {
       };
 
       const docRef = await addDoc(collection(db, `users/${user.uid}/photos`), photoData);
+      console.log("Firestore save success, id:", docRef.id);
       uploaded.push({ id: docRef.id, ...photoData });
     } catch (error) {
-      console.error(`Upload failed for ${file.name}:`, error);
-      failed.push(file.name);
+      console.error("Photo upload failed:", error);
+      alert(`Upload failed: ${error.message}`);
     }
   }
 
@@ -239,13 +252,7 @@ window.addPhoto = async function addPhoto(event) {
     window.renderPhotos();
   }
 
-  const input = document.getElementById("photoInput");
-  if (input) input.value = "";
   event.target.value = "";
-
-  if (failed.length) {
-    alert(`Some uploads failed: ${failed.join(", ")}`);
-  }
 };
 
 /* ── Delete photo ───────────────────────────────────────────────────────── */
