@@ -3,7 +3,7 @@ import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/f
 import {
   getStorage,
   ref,
-  uploadBytes,
+  uploadBytesResumable,
   getDownloadURL,
   deleteObject,
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-storage.js";
@@ -251,10 +251,56 @@ window.addPhoto = async function addPhoto(event) {
       const storageRef = ref(storage, storagePath);
       console.log("Uploading file:", file.name);
 
-      await uploadBytes(storageRef, file);
+      /* uploadBytesResumable gives progress callbacks and can be cancelled.
+         A 30-second inactivity timer cancels the task so the upload never
+         hangs indefinitely (e.g. on a CORS / network issue). */
+      const uploadedRef = await new Promise((resolve, reject) => {
+        const task = uploadBytesResumable(storageRef, file);
+        let lastBytes = 0;
+        let stuckTimer = null;
+
+        function resetStuckTimer() {
+          clearTimeout(stuckTimer);
+          stuckTimer = null;
+          stuckTimer = setTimeout(() => {
+            stuckTimer = null;
+            task.cancel();
+            reject(new Error("Upload timed out – check your network or Firebase Storage CORS settings."));
+          }, 30000);
+        }
+
+        resetStuckTimer();
+
+        task.on(
+          "state_changed",
+          (snapshot) => {
+            if (snapshot.bytesTransferred > lastBytes) {
+              lastBytes = snapshot.bytesTransferred;
+              resetStuckTimer();
+            }
+            const pct = snapshot.totalBytes
+              ? Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
+              : 0;
+            setUploadStatus(
+              `Uploading ${i + 1} of ${files.length}: ${file.name}… ${pct}%`,
+              "info"
+            );
+          },
+          (error) => {
+            clearTimeout(stuckTimer);
+            stuckTimer = null;
+            reject(error);
+          },
+          () => {
+            clearTimeout(stuckTimer);
+            stuckTimer = null;
+            resolve(task.snapshot.ref);
+          }
+        );
+      });
       console.log("Upload success");
 
-      const url = await getDownloadURL(storageRef);
+      const url = await getDownloadURL(uploadedRef);
       console.log("Download URL:", url);
 
       const photoData = {
