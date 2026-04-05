@@ -5,7 +5,8 @@ import {
   ref,
   uploadBytes,
   getDownloadURL,
-  deleteObject
+  deleteObject,
+  setMaxUploadRetryTime
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-storage.js";
 import {
   getFirestore,
@@ -18,6 +19,8 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 
 const storage = getStorage(app);
+const MAX_UPLOAD_RETRY_TIME_MS = 3 * 60 * 1000; // 3 minutes
+setMaxUploadRetryTime(storage, MAX_UPLOAD_RETRY_TIME_MS);
 const db = getFirestore(app);
 
 /* ── String helpers ─────────────────────────────────────────────────────── */
