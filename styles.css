@@ -377,6 +377,24 @@ ul {
   display: none;
 }
 
+.photo-upload-status {
+  margin-top: 10px;
+  font-size: 0.9rem;
+  min-height: 1.4em;
+}
+
+.photo-upload-status--info {
+  color: var(--accent);
+}
+
+.photo-upload-status--success {
+  color: var(--green);
+}
+
+.photo-upload-status--error {
+  color: var(--red);
+}
+
 .photo-upload-row {
   list-style: none;
   margin-bottom: 16px;
