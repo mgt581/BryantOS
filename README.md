@@ -3,7 +3,7 @@
 ## Firebase Storage CORS Setup
 
 Photos uploaded to Firebase Storage are served from `bryantos.appspot.com`.  
-Browsers send a CORS preflight request before each upload/download; without a CORS policy on the bucket those preflight requests return **404** and the upload fails.
+Browsers send a CORS preflight request for cross-origin requests that use non-simple methods or headers (e.g. uploads and authenticated downloads); without a CORS policy on the bucket those preflight requests return **404** and the request fails.
 
 Run the following **once** (requires the [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) and `gsutil` authenticated to the `bryantos` project):
 
