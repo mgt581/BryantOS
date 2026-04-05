@@ -64,7 +64,11 @@ window.setCurrentPhotoFolder = setCurrentPhotoFolder;
 
 /* ── Upload status helper ───────────────────────────────────────────────── */
 
-function setUploadStatus(message, type /* "info" | "error" | "success" | "" */) {
+/**
+ * @param {string} message
+ * @param {'info'|'error'|'success'|''} type
+ */
+function setUploadStatus(message, type) {
   const el = document.getElementById("photoUploadStatus");
   if (!el) return;
   el.textContent = message;
@@ -263,6 +267,8 @@ window.addPhoto = async function addPhoto(event) {
     } catch (error) {
       console.error("Photo upload failed:", error);
       const isPermission = error.code === "storage/unauthorized" || error.code === "permission-denied";
+      /* Best-effort CORS detection: Firebase SDK doesn't expose a dedicated CORS error code,
+         so we fall back to checking for a missing code with a network-related message. */
       const isCors = !error.code && (!error.message || error.message.toLowerCase().includes("network"));
       let hint = "";
       if (isPermission) hint = " Check Firebase Storage security rules.";
