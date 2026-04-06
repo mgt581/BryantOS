@@ -443,7 +443,9 @@ function shortenFileName(name, max = 28) {
   if (extIndex === -1) return name.slice(0, max) + "...";
   const ext = name.slice(extIndex);
   const base = name.slice(0, extIndex);
-  return base.slice(0, max - ext.length - 3) + "..." + ext;
+  const baseMax = max - ext.length - 3;
+  if (baseMax <= 0) return name.slice(0, max) + "...";
+  return base.slice(0, baseMax) + "..." + ext;
 }
 
 function renderPhotos() {
