@@ -152,9 +152,17 @@
     <section class="section" id="codes">
       <h2>Secure Vault</h2>
       <p class="section-folder-label">Folder: <span id="codesFolderLabel"></span></p>
-      <input id="codeInput" placeholder="Store code / password / key..." onkeydown="if(event.key==='Enter'){event.preventDefault();addCode()}">
-      <button onclick="addCode()">Add</button>
-      <ul id="codeList"></ul>
+      <div id="vaultUnlock">
+        <input id="vaultPasscode" type="password" placeholder="Enter vault passcode...">
+        <button onclick="unlockVaultUI()">Unlock Vault</button>
+      </div>
+      <div id="vaultContent" style="display: none;">
+        <button onclick="lockVaultUI()">Lock Vault</button>
+        <input id="vaultName" placeholder="Name (e.g. Gmail)">
+        <input id="vaultValue" type="password" placeholder="Secret / password...">
+        <button onclick="addVaultItem()">Add</button>
+        <ul id="vaultList"></ul>
+      </div>
     </section>
 
     <section class="section" id="calendar">
@@ -180,6 +188,7 @@
     <p>Don’t forget why you started. Finish what matters.</p>
   </footer>
 
+  <script type="module" src="./vault-ui.js"></script>
   <script defer src="./app.js"></script>
 </body>
 </html>
