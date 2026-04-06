@@ -10,6 +10,9 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+  <!-- CryptoJS for vault AES-256 encryption -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js" integrity="sha512-z4PhNX7vuL3xVChQ1m2AB9Yg5AULVxXcg/SpIdNs6c5H0NE8XYXysP+DGNKHfuwvY7kxvUdBeoGlODJ6+SfaPg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   
   <style>
     .signin-btn {
@@ -195,13 +198,45 @@
     </div>
 
     <div id="codes" class="section">
-      <h2>Vault</h2>
-      <p class="section-folder-label">Folder: <span id="codesFolderLabel"></span></p>
-      <div class="inline-row">
-        <input type="text" id="codeInput" placeholder="Password or code…">
-        <button type="button" onclick="addCode()">Add</button>
+      <!-- Lock overlay -->
+      <div id="vaultLock" class="vault-lock">
+        <div class="vault-lock-box">
+          <div class="vault-lock-icon">🔒</div>
+          <h3 id="vaultLockTitle">Vault Locked</h3>
+          <p id="vaultLockSubtitle">Enter your PIN to unlock.</p>
+          <input id="vaultPinInput" type="password" inputmode="numeric" maxlength="20"
+                 class="vault-pin-input" placeholder="PIN"
+                 onkeydown="if(event.key==='Enter') vaultSubmitPin()">
+          <input id="vaultPinConfirm" type="password" inputmode="numeric" maxlength="20"
+                 class="vault-pin-input" placeholder="Confirm PIN" hidden
+                 onkeydown="if(event.key==='Enter') vaultSubmitPin()">
+          <p id="vaultPinError" class="vault-pin-error"></p>
+          <div class="vault-lock-actions">
+            <button type="button" class="vault-unlock-btn" onclick="vaultSubmitPin()">Unlock</button>
+            <button type="button" id="vaultBioBtn" class="vault-bio-btn"
+                    onclick="vaultBiometricAuth()" hidden>🪪 Use Biometrics</button>
+          </div>
+        </div>
       </div>
-      <ul id="codeList"></ul>
+
+      <!-- Vault content (hidden until unlocked) -->
+      <div id="vaultContent" hidden>
+        <div class="vault-header">
+          <h2>Vault</h2>
+          <button type="button" class="vault-lock-btn" onclick="vaultLock()">🔒 Lock</button>
+        </div>
+        <p class="section-folder-label">Folder: <span id="codesFolderLabel"></span></p>
+        <div id="vaultBioRegWrap" hidden style="margin-bottom:12px;">
+          <button type="button" class="vault-bio-reg-btn" onclick="vaultRegisterBiometric()">
+            🪪 Enable Biometrics for this device
+          </button>
+        </div>
+        <div class="inline-row">
+          <input type="text" id="codeInput" placeholder="Password or code…">
+          <button type="button" onclick="addCode()">Add</button>
+        </div>
+        <ul id="codeList"></ul>
+      </div>
     </div>
 
     <div id="calendar" class="section">
