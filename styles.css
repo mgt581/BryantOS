@@ -1,4 +1,4 @@
-** {
+* {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
@@ -379,6 +379,7 @@ ul {
   margin-bottom: 14px;
 }
 
+<<<<<<< HEAD
 .photo-input-hidden {
   display: none;
 }
@@ -456,6 +457,8 @@ ul {
   border-color: transparent;
 }
 
+=======
+>>>>>>> 54216dd (local updates)
 .photo-card {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--line);

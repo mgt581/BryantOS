@@ -4,16 +4,37 @@
   <meta charset="UTF-8">
   <title>BryantOS</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="styles.css">
+  <!-- Firebase compat SDK (v10) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
 </head>
 <body>
 
   <header class="header">
-    <h1>BryantOS</h1>
-    <p class="tagline">The tasks you avoid often hold the most value.</p>
-    <button class="signout-btn" id="authBtn" type="button" onclick="window.location.href='./signin.html'">Sign In</button>
-  </header>
+  <h1>BryantOS</h1>
+  <p class="tagline">The tasks you avoid often hold the most value.</p>
+  <button class="signout-btn" onclick="signOut()">Sign Out</button>
+</header>
 
+<div id="syncError" class="sync-error" hidden>
+  ⚠️ Cloud sync failed — your changes are saved locally but not backed up.
+</div>
+
+<div class="search-bar">
+  <div class="search-input-wrap">
+    <input id="globalSearch" type="text" placeholder="Search everything..." oninput="runSearch()" onkeydown="if(event.key==='Enter') runSearch()">
+    <button class="search-btn" onclick="runSearch()" aria-label="Search">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"></circle>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+    </button>
+  </div>
+</div>
+  
   <nav class="nav">
     <button onclick="showSection('dashboard')">Dashboard</button>
     <button onclick="showSection('notes')">Notes</button>
@@ -25,7 +46,6 @@
     <button onclick="showSection('codes')">Vault</button>
     <button onclick="showSection('calendar')">Calendar</button>
     <button onclick="showSection('contacts')">Contacts</button>
-    <button onclick="showSection('vaultSecure')">Secure Vault</button>
   </nav>
 
   <main>
@@ -45,7 +65,7 @@
           <div class="folder-add-wrap">
             <label for="newFolderInput">Add folder</label>
             <div class="inline-row">
-              <input id="newFolderInput" type="text" placeholder="New folder name">
+              <input id="newFolderInput" type="text" placeholder="New folder name" onkeydown="if(event.key==='Enter'){event.preventDefault();addFolder()}">
               <button onclick="addFolder()">Add Folder</button>
             </div>
           </div>
@@ -71,6 +91,7 @@
     <section class="section" id="photos">
       <h2>Photos / Screenshots</h2>
       <p class="section-folder-label">Folder: <span id="photosFolderLabel"></span></p>
+<<<<<<< HEAD
 
       <div class="photo-folder-create-static">
         <label class="photo-subfolder-label">Create subfolder</label>
@@ -85,13 +106,17 @@
         <label for="photoInput" class="upload-label">Upload Photos</label>
         <div id="photoUploadStatus" class="photo-upload-status" aria-live="polite"></div>
       </div>
+=======
+      <input type="file" id="photoInput" accept="image/*" onchange="addPhoto(event)">
+>>>>>>> 54216dd (local updates)
       <ul id="photoList"></ul>
     </section>
 
     <section class="section" id="mail">
       <h2>Inbox Vault</h2>
       <p class="section-folder-label">Folder: <span id="mailFolderLabel"></span></p>
-      <input id="mailInput" placeholder="Paste important email or task...">
+      <input id="mailInput" placeholder="Paste important email or task..." onkeydown="if(event.key==='Enter'){event.preventDefault();addMail()}">
+      <input id="mailInput" placeholder="Paste important email or task..." onkeydown="if(event.key==='Enter') addMail()">
       <button onclick="addMail()">Add</button>
       <ul id="mailList"></ul>
     </section>
@@ -100,7 +125,9 @@
       <h2>Money Tracker</h2>
       <p class="section-folder-label">Folder: <span id="moneyFolderLabel"></span></p>
       <input id="moneyDesc" placeholder="Description">
-      <input id="moneyAmount" placeholder="+ or - amount">
+      <input id="moneyAmount" placeholder="+ or - amount" onkeydown="if(event.key==='Enter'){event.preventDefault();addMoney()}">
+      <input id="moneyDesc" placeholder="Description" onkeydown="if(event.key==='Enter') document.getElementById('moneyAmount').focus()">
+      <input id="moneyAmount" placeholder="+ or - amount" onkeydown="if(event.key==='Enter') addMoney()">
       <button onclick="addMoney()">Add</button>
       <ul id="moneyList"></ul>
     </section>
@@ -108,7 +135,8 @@
     <section class="section" id="bills">
       <h2>Bills</h2>
       <p class="section-folder-label">Folder: <span id="billsFolderLabel"></span></p>
-      <input id="billInput" placeholder="Bill name...">
+      <input id="billInput" placeholder="Bill name..." onkeydown="if(event.key==='Enter'){event.preventDefault();addBill()}">
+      <input id="billInput" placeholder="Bill name..." onkeydown="if(event.key==='Enter') addBill()">
       <button onclick="addBill()">Add</button>
       <ul id="billList"></ul>
     </section>
@@ -116,7 +144,7 @@
     <section class="section" id="links">
       <h2>Important Links</h2>
       <p class="section-folder-label">Folder: <span id="linksFolderLabel"></span></p>
-      <input id="linkInput" placeholder="Paste URL or email...">
+      <input id="linkInput" placeholder="Paste URL or email..." onkeydown="if(event.key==='Enter'){event.preventDefault();addLink()}">
       <button onclick="addLink()">Add</button>
       <ul id="linkList"></ul>
     </section>
@@ -124,7 +152,7 @@
     <section class="section" id="codes">
       <h2>Secure Vault</h2>
       <p class="section-folder-label">Folder: <span id="codesFolderLabel"></span></p>
-      <input id="codeInput" placeholder="Store code / password / key...">
+      <input id="codeInput" placeholder="Store code / password / key..." onkeydown="if(event.key==='Enter'){event.preventDefault();addCode()}">
       <button onclick="addCode()">Add</button>
       <ul id="codeList"></ul>
     </section>
@@ -133,7 +161,7 @@
       <h2>Calendar</h2>
       <p class="section-folder-label">Folder: <span id="calendarFolderLabel"></span></p>
       <input type="date" id="dateInput">
-      <input id="eventInput" placeholder="Event...">
+      <input id="eventInput" placeholder="Event..." onkeydown="if(event.key==='Enter'){event.preventDefault();addEvent()}">
       <button onclick="addEvent()">Add</button>
       <ul id="eventList"></ul>
     </section>
@@ -142,33 +170,16 @@
       <h2>Important Contacts</h2>
       <p class="section-folder-label">Folder: <span id="contactsFolderLabel"></span></p>
       <input id="contactName" placeholder="Name">
-      <input id="contactNumber" placeholder="Number">
+      <input id="contactNumber" placeholder="Number" onkeydown="if(event.key==='Enter'){event.preventDefault();addContact()}">
       <button onclick="addContact()">Add</button>
       <ul id="contactList"></ul>
     </section>
-
-    <section class="section" id="vaultSecure">
-      <h2>Secure Vault</h2>
-
-      <input id="vaultPasscode" type="password" placeholder="Enter passcode">
-      <button onclick="unlockVaultUI()">Unlock Vault</button>
-
-      <div id="vaultContent" style="display:none;">
-        <input id="vaultName" placeholder="Name">
-        <input id="vaultValue" placeholder="Secret">
-        <button onclick="addVaultItem()">Save</button>
-        <ul id="vaultList"></ul>
-      </div>
-    </section>
   </main>
 
-  <footer class="footer">
+   <footer class="footer">
     <p>Don’t forget why you started. Finish what matters.</p>
   </footer>
 
-  <script src="./app.js"></script>
-  <script type="module" src="./photo-storage.js"></script>
-  <script type="module" src="./vault-ui.js"></script>
-  <script type="module" src="./auth.js"></script>
+  <script defer src="./app.js"></script>
 </body>
 </html>
