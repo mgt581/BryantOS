@@ -1,4 +1,8 @@
-export async function deriveKey(passcode) {
+export function generateSalt() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)));
+}
+
+export async function deriveKey(passcode, salt) {
   const enc = new TextEncoder();
 
   const keyMaterial = await crypto.subtle.importKey(
@@ -12,8 +16,8 @@ export async function deriveKey(passcode) {
   return crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
-      salt: enc.encode("bryantos-secure-vault"),
-      iterations: 100000,
+      salt: new Uint8Array(salt),
+      iterations: 150000,
       hash: "SHA-256"
     },
     keyMaterial,
