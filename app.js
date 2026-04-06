@@ -364,13 +364,13 @@ function addPhoto(event) {
 
     const saved = setStoredData("bryantos_photos", items);
 
-    const input = document.getElementById("photoInput");
-    if (input) input.value = "";
-
     if (!saved) {
       alert("Could not save the photo — storage is full. Please delete some existing photos and try again.");
       return;
     }
+
+    const input = document.getElementById("photoInput");
+    if (input) input.value = "";
 
     renderPhotos();
   };
