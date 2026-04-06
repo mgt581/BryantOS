@@ -20,6 +20,16 @@ const SYNC_KEYS = [
   "bryantos_contacts"
 ];
 
+// ── Vault encryption state ─────────────────────────────────────────────────────
+const VAULT_PIN_HASH_KEY = "bryantos_vault_pin_hash";
+const VAULT_PIN_SALT_KEY = "bryantos_vault_pin_salt";
+const VAULT_ENC_FLAG_KEY = "bryantos_vault_encrypted";
+const VAULT_WA_CRED_KEY  = "bryantos_vault_wa_cred";
+const VAULT_WA_PIN_KEY   = "bryantos_vault_wa_pin";
+
+// In-memory only — cleared on every page refresh (intentional security design).
+let _vaultPin = null;
+
 async function loadFromFirestore() {
   if (!_db || !_uid) return;
   try {
@@ -112,6 +122,15 @@ function showSection(sectionId) {
   }
 
   selectedSection.classList.add("active");
+
+  if (sectionId === "codes") {
+    if (vaultIsUnlocked()) {
+      _showVaultContentUI();
+    } else {
+      _showVaultLockUI();
+    }
+  }
+
   runSearch();
 }
 
@@ -685,10 +704,287 @@ function renderLinks() {
   runSearch();
 }
 
+/* Vault encryption helpers ──────────────────────────────────────────────────── */
+
+function _vaultGetSalt() {
+  let salt = localStorage.getItem(VAULT_PIN_SALT_KEY);
+  if (!salt) {
+    salt = CryptoJS.lib.WordArray.random(16).toString();
+    localStorage.setItem(VAULT_PIN_SALT_KEY, salt);
+  }
+  return salt;
+}
+
+function _vaultHashPin(pin) {
+  return CryptoJS.PBKDF2(String(pin), _vaultGetSalt(), {
+    keySize: 8, iterations: 600000
+  }).toString();
+}
+
+function _encryptText(text, key) {
+  return CryptoJS.AES.encrypt(String(text), String(key)).toString();
+}
+
+function _decryptText(ciphertext, key) {
+  try {
+    const bytes = CryptoJS.AES.decrypt(String(ciphertext), String(key));
+    return bytes.toString(CryptoJS.enc.Utf8) || null;
+  } catch {
+    return null;
+  }
+}
+
+function vaultHasPin() {
+  return !!localStorage.getItem(VAULT_PIN_HASH_KEY);
+}
+
+function vaultIsUnlocked() {
+  return _vaultPin !== null;
+}
+
+// Encrypt all existing vault entries in-place with the given PIN.
+function _vaultEncryptAll(pin) {
+  const items = getStoredData("bryantos_codes", []);
+  const encrypted = items.map(item => ({ ...item, text: _encryptText(item.text, pin) }));
+  setStoredData("bryantos_codes", encrypted);
+  localStorage.setItem(VAULT_ENC_FLAG_KEY, "true");
+}
+
+// Re-encrypt all vault entries when changing PIN.
+function _vaultReEncryptAll(oldPin, newPin) {
+  const items = getStoredData("bryantos_codes", []);
+  const reEncrypted = items.map(item => {
+    const plain = _decryptText(item.text, oldPin) || item.text;
+    return { ...item, text: _encryptText(plain, newPin) };
+  });
+  setStoredData("bryantos_codes", reEncrypted);
+}
+
+// Set (or replace) the vault PIN and encrypt all entries.
+function vaultSetNewPin(pin) {
+  const wasEncrypted = localStorage.getItem(VAULT_ENC_FLAG_KEY) === "true";
+  if (wasEncrypted && _vaultPin) {
+    _vaultReEncryptAll(_vaultPin, pin);
+  } else if (!wasEncrypted) {
+    _vaultEncryptAll(pin);
+  }
+  localStorage.setItem(VAULT_PIN_HASH_KEY, _vaultHashPin(pin));
+  _vaultPin = pin;
+  sessionStorage.setItem("vault_sess", btoa(pin));
+}
+
+// Try to unlock the vault with the given PIN. Returns true on success.
+function vaultUnlock(pin) {
+  if (!vaultHasPin()) {
+    vaultSetNewPin(pin);
+    return true;
+  }
+  if (_vaultHashPin(pin) === localStorage.getItem(VAULT_PIN_HASH_KEY)) {
+    _vaultPin = pin;
+    sessionStorage.setItem("vault_sess", btoa(pin));
+    return true;
+  }
+  return false;
+}
+
+// Lock the vault — clears in-memory PIN and shows the lock overlay.
+function vaultLock() {
+  _vaultPin = null;
+  _showVaultLockUI();
+}
+
+/* Vault UI helpers ───────────────────────────────────────────────────────────── */
+
+function _showVaultLockUI() {
+  const lockEl    = document.getElementById("vaultLock");
+  const contentEl = document.getElementById("vaultContent");
+  if (!lockEl || !contentEl) return;
+
+  lockEl.hidden    = false;
+  contentEl.hidden = true;
+
+  const hasPin     = vaultHasPin();
+  const titleEl    = document.getElementById("vaultLockTitle");
+  const subtitleEl = document.getElementById("vaultLockSubtitle");
+  const confirmEl  = document.getElementById("vaultPinConfirm");
+  const pinEl      = document.getElementById("vaultPinInput");
+  const errorEl    = document.getElementById("vaultPinError");
+  const bioBtn     = document.getElementById("vaultBioBtn");
+
+  if (titleEl)    titleEl.textContent    = hasPin ? "Vault Locked"          : "Set Your Vault PIN";
+  if (subtitleEl) subtitleEl.textContent = hasPin ? "Enter your PIN to unlock." : "Create a PIN to protect your vault.";
+  if (confirmEl)  confirmEl.hidden       = hasPin;
+  if (pinEl)      pinEl.value            = "";
+  if (confirmEl)  confirmEl.value        = "";
+  if (errorEl)    errorEl.textContent    = "";
+  if (pinEl)      pinEl.focus();
+
+  if (bioBtn) {
+    const credId = localStorage.getItem(VAULT_WA_CRED_KEY);
+    bioBtn.hidden = !(window.PublicKeyCredential && credId);
+  }
+}
+
+function _showVaultContentUI() {
+  const lockEl    = document.getElementById("vaultLock");
+  const contentEl = document.getElementById("vaultContent");
+  if (!lockEl || !contentEl) return;
+
+  lockEl.hidden    = true;
+  contentEl.hidden = false;
+
+  // Show biometrics registration prompt if WebAuthn is available and not yet set up.
+  const bioRegWrap = document.getElementById("vaultBioRegWrap");
+  if (bioRegWrap) {
+    const hasCred = !!localStorage.getItem(VAULT_WA_CRED_KEY);
+    bioRegWrap.hidden = !(window.PublicKeyCredential && !hasCred);
+  }
+
+  renderCodes();
+}
+
+// Called by the "Unlock" button and PIN inputs' Enter key.
+function vaultSubmitPin() {
+  const pinEl     = document.getElementById("vaultPinInput");
+  const confirmEl = document.getElementById("vaultPinConfirm");
+  const errorEl   = document.getElementById("vaultPinError");
+  const pin = pinEl ? pinEl.value.trim() : "";
+
+  if (errorEl) errorEl.textContent = "";
+  if (!pin) {
+    if (errorEl) errorEl.textContent = "Please enter a PIN.";
+    return;
+  }
+
+  if (!vaultHasPin()) {
+    // First-time setup — require confirmation.
+    const confirm = confirmEl ? confirmEl.value.trim() : "";
+    if (pin !== confirm) {
+      if (errorEl) errorEl.textContent = "PINs do not match.";
+      return;
+    }
+    vaultSetNewPin(pin);
+    _showVaultContentUI();
+    return;
+  }
+
+  if (vaultUnlock(pin)) {
+    _showVaultContentUI();
+  } else {
+    if (errorEl) errorEl.textContent = "Wrong PIN. Try again.";
+    if (pinEl)   pinEl.value = "";
+  }
+}
+
+/* WebAuthn biometric helpers ─────────────────────────────────────────────────── */
+
+// Convert a WordArray to a Uint8Array.
+function _wordArrayToUint8(wordArray) {
+  const words = wordArray.words;
+  const len   = wordArray.sigBytes;
+  const u8    = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    u8[i] = (words[i >>> 2] >>> (24 - (i % 4) * 8)) & 0xff;
+  }
+  return u8;
+}
+
+// Register a WebAuthn credential to allow biometric vault unlock.
+async function vaultRegisterBiometric() {
+  if (!window.PublicKeyCredential) {
+    alert("Biometrics are not supported on this device or browser.");
+    return;
+  }
+  try {
+    const challenge = _wordArrayToUint8(CryptoJS.lib.WordArray.random(32));
+    const userId    = _wordArrayToUint8(CryptoJS.lib.WordArray.random(16));
+
+    const credential = await navigator.credentials.create({
+      publicKey: {
+        challenge,
+        rp: { name: "BryantOS Vault", id: location.hostname },
+        user: { id: userId, name: "vault", displayName: "BryantOS Vault" },
+        pubKeyCredParams: [
+          { type: "public-key", alg: -7   },   // ES256
+          { type: "public-key", alg: -257 }    // RS256
+        ],
+        authenticatorSelection: { userVerification: "required", residentKey: "preferred" },
+        timeout: 60000
+      }
+    });
+
+    const credIdB64 = btoa(String.fromCharCode(...new Uint8Array(credential.rawId)));
+    localStorage.setItem(VAULT_WA_CRED_KEY, credIdB64);
+
+    // Encrypt the session PIN with the credential ID so it can be recovered after
+    // a successful biometric assertion (credential ID is the decryption gate).
+    const sess = sessionStorage.getItem("vault_sess");
+    if (sess) {
+      localStorage.setItem(VAULT_WA_PIN_KEY, _encryptText(sess, credIdB64));
+    }
+
+    const bioRegWrap = document.getElementById("vaultBioRegWrap");
+    if (bioRegWrap) bioRegWrap.hidden = true;
+
+    alert("Biometrics enabled! You can now use your fingerprint or face to unlock the vault.");
+  } catch (err) {
+    if (err.name !== "NotAllowedError") {
+      console.error("WebAuthn registration failed:", err);
+      alert("Biometric setup failed: " + err.message);
+    }
+  }
+}
+
+// Authenticate with a registered WebAuthn credential to unlock the vault.
+async function vaultBiometricAuth() {
+  if (!window.PublicKeyCredential) return;
+  const credIdB64 = localStorage.getItem(VAULT_WA_CRED_KEY);
+  if (!credIdB64) return;
+
+  const errorEl = document.getElementById("vaultPinError");
+  try {
+    const challenge  = _wordArrayToUint8(CryptoJS.lib.WordArray.random(32));
+    const credIdBytes = Uint8Array.from(atob(credIdB64).split("").map(c => c.charCodeAt(0)));
+
+    await navigator.credentials.get({
+      publicKey: {
+        challenge,
+        rpId: location.hostname,
+        allowCredentials: [{ type: "public-key", id: credIdBytes }],
+        userVerification: "required",
+        timeout: 60000
+      }
+    });
+
+    // WebAuthn assertion succeeded — recover the PIN.
+    const encPin = localStorage.getItem(VAULT_WA_PIN_KEY);
+    if (!encPin) {
+      if (errorEl) errorEl.textContent = "Biometric data not found. Please use your PIN.";
+      return;
+    }
+    const sessPinB64 = _decryptText(encPin, credIdB64);
+    if (!sessPinB64) {
+      if (errorEl) errorEl.textContent = "Could not recover credentials. Please use your PIN.";
+      return;
+    }
+    const pin = atob(sessPinB64);
+    if (vaultUnlock(pin)) {
+      _showVaultContentUI();
+    } else {
+      if (errorEl) errorEl.textContent = "Biometric key is invalid. Please use your PIN.";
+    }
+  } catch (err) {
+    if (err.name !== "NotAllowedError") {
+      console.error("WebAuthn auth failed:", err);
+      if (errorEl) errorEl.textContent = "Biometric authentication failed. Please use your PIN.";
+    }
+  }
+}
+
 /* Vault */
 function addCode() {
   const input = document.getElementById("codeInput");
-  if (!input) return;
+  if (!input || !vaultIsUnlocked()) return;
 
   const value = input.value.trim();
   if (!value) return;
@@ -697,7 +993,7 @@ function addCode() {
   items.unshift({
     id: Date.now(),
     folder: getCurrentFolder(),
-    text: value
+    text: _encryptText(value, _vaultPin)
   });
 
   setStoredData("bryantos_codes", items);
@@ -713,16 +1009,17 @@ function deleteCode(id) {
 
 function renderCodes() {
   const list = document.getElementById("codeList");
-  if (!list) return;
+  if (!list || !vaultIsUnlocked()) return;
 
   const items = getFilteredItems("bryantos_codes");
   list.innerHTML = "";
 
   items.forEach(item => {
+    const displayed = _decryptText(item.text, _vaultPin) || item.text;
     const li = document.createElement("li");
     li.className = "list-item";
     li.innerHTML = `
-      <span>${escapeHtml(item.text)}</span>
+      <span>${escapeHtml(displayed)}</span>
       <div class="list-actions">
         <select onchange="moveItem('bryantos_codes', ${item.id}, this.value)">
           ${buildFolderOptions(item.folder)}
