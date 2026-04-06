@@ -10,7 +10,9 @@ const signInBtn = document.getElementById("googleSignInBtn");
 const statusEl = document.getElementById("authStatus");
 
 let hasSyncedCurrentUser = false;
-const BASE_PATH = window.location.hostname === "mgt581.github.io" ? "/BryantOS" : "";
+
+const BASE_PATH =
+  window.location.hostname === "mgt581.github.io" ? "/BryantOS" : "";
 
 function goToHome() {
   window.location.href = `${BASE_PATH}/index.html`;
@@ -57,14 +59,11 @@ function isHomePage() {
   );
 }
 
-// TEMP: backend sync bypassed for now
 async function handleSignedInUser(user, shouldRedirect = false) {
   if (!user) return;
 
   if (hasSyncedCurrentUser) {
-    if (shouldRedirect) {
-      goToHome();
-    }
+    if (shouldRedirect) goToHome();
     return;
   }
 
@@ -72,10 +71,42 @@ async function handleSignedInUser(user, shouldRedirect = false) {
 
   try {
     setStatus("Signing in...");
-    console.log("Skipping backend sync for now");
+
+    // 🔥 Get Firebase token
+    const idToken = await user.getIdToken();
+
+    // 🔥 Send to your Cloudflare Worker API
+    const response = await fetch(
+      "https://bryantos-api.alexbryant.workers.dev/api/auth/firebase-login",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`
+        },
+        body: JSON.stringify({
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName || "",
+          photoURL: user.photoURL || ""
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || "Backend sync failed");
+    }
+
+    const data = await response.json();
+    console.log("Backend sync success:", data);
+
     setStatus("Success.");
   } catch (error) {
-    console.error("Temporary sync bypass error:", error);
+    hasSyncedCurrentUser = false;
+    console.error("Backend sync failed:", error);
+    setStatus(`Login failed: ${getFriendlyErrorMessage(error)}`, true);
+    return;
   }
 
   if (shouldRedirect) {
@@ -91,14 +122,10 @@ function updateAuthButton(isSignedIn) {
 
   if (isSignedIn) {
     btn.textContent = "Sign Out";
-    btn.setAttribute("aria-label", "Sign out of your account");
     btn.onclick = () => window.logoutBryantOS();
   } else {
     btn.textContent = "Sign In";
-    btn.setAttribute("aria-label", "Sign in to your account");
-    btn.onclick = () => {
-      goToSignIn();
-    };
+    btn.onclick = () => goToSignIn();
   }
 }
 
@@ -128,7 +155,6 @@ onAuthStateChanged(auth, async (user) => {
     if (isHomePage()) {
       goToSignIn();
     }
-
     return;
   }
 
