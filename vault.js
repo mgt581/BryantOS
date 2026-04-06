@@ -1,4 +1,9 @@
-import { generateSalt, deriveKey, encryptData, decryptData } from "./vault-crypto.js";
+import {
+  generateSalt,
+  deriveKey,
+  encryptData,
+  decryptData
+} from "./vault-crypto.js";
 
 const VAULT_STORAGE_KEY = "bryantos_secure_vault";
 
