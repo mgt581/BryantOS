@@ -347,32 +347,65 @@ function loadNotes() {
 }
 
 /* Photos */
+function compressImage(dataUrl, maxDimension, quality, callback) {
+  const img = new Image();
+  img.onerror = function() {
+    callback(dataUrl);
+  };
+  img.onload = function() {
+    let width = img.width;
+    let height = img.height;
+    if (width > maxDimension || height > maxDimension) {
+      if (width >= height) {
+        height = Math.round(height * maxDimension / width);
+        width = maxDimension;
+      } else {
+        width = Math.round(width * maxDimension / height);
+        height = maxDimension;
+      }
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      callback(dataUrl);
+      return;
+    }
+    ctx.drawImage(img, 0, 0, width, height);
+    callback(canvas.toDataURL("image/jpeg", quality));
+  };
+  img.src = dataUrl;
+}
+
 function addPhoto(event) {
   const file = event.target.files[0];
   if (!file) return;
 
   const reader = new FileReader();
   reader.onload = function(e) {
-    const items = getStoredData("bryantos_photos", []);
-    const newPhoto = {
-      id: Date.now(),
-      folder: getCurrentFolder(),
-      name: file.name,
-      data: e.target.result
-    };
-    items.unshift(newPhoto);
+    compressImage(e.target.result, 1200, 0.75, function(compressedData) {
+      const items = getStoredData("bryantos_photos", []);
+      const newPhoto = {
+        id: Date.now(),
+        folder: getCurrentFolder(),
+        name: file.name,
+        data: compressedData
+      };
+      items.unshift(newPhoto);
 
-    const saved = setStoredData("bryantos_photos", items);
+      const saved = setStoredData("bryantos_photos", items);
 
-    if (!saved) {
-      alert("Could not save the photo — storage is full. Please delete some existing photos and try again.");
-      return;
-    }
+      if (!saved) {
+        alert("Could not save the photo — storage is full. Please delete some existing photos and try again.");
+        return;
+      }
 
-    const input = document.getElementById("photoInput");
-    if (input) input.value = "";
+      const input = document.getElementById("photoInput");
+      if (input) input.value = "";
 
-    renderPhotos();
+      renderPhotos();
+    });
   };
 
   reader.readAsDataURL(file);
