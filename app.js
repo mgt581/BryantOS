@@ -129,8 +129,10 @@ function setStoredData(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
     scheduleSyncToFirestore();
+    return true;
   } catch (error) {
     console.error("Error saving", key, error);
+    return false;
   }
 }
 
@@ -352,14 +354,20 @@ function addPhoto(event) {
   const reader = new FileReader();
   reader.onload = function(e) {
     const items = getStoredData("bryantos_photos", []);
-    items.unshift({
+    const newPhoto = {
       id: Date.now(),
       folder: getCurrentFolder(),
       name: file.name,
       data: e.target.result
-    });
+    };
+    items.unshift(newPhoto);
 
-    setStoredData("bryantos_photos", items);
+    const saved = setStoredData("bryantos_photos", items);
+
+    if (!saved) {
+      alert("Could not save the photo — storage is full. Please delete some existing photos and try again.");
+      return;
+    }
 
     const input = document.getElementById("photoInput");
     if (input) input.value = "";
