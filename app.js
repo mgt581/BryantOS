@@ -822,7 +822,6 @@ function escapeAttribute(value) {
 }
 
 document.addEventListener("DOMContentLoaded", function() {
-  firebase.initializeApp(FIREBASE_CONFIG);
   const auth = firebase.auth();
 
   auth.onAuthStateChanged(async function(user) {
