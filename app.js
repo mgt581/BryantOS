@@ -436,6 +436,16 @@ function deletePhoto(id) {
   renderPhotos();
 }
 
+function shortenFileName(name, max = 28) {
+  if (!name) return "Untitled image";
+  if (name.length <= max) return name;
+  const extIndex = name.lastIndexOf(".");
+  if (extIndex === -1) return name.slice(0, max) + "...";
+  const ext = name.slice(extIndex);
+  const base = name.slice(0, extIndex);
+  return base.slice(0, max - ext.length - 3) + "..." + ext;
+}
+
 function renderPhotos() {
   const list = document.getElementById("photoList");
   if (!list) return;
@@ -450,13 +460,14 @@ function renderPhotos() {
       <div class="photo-card">
         <img src="${item.data}" alt="${escapeAttribute(item.name)}" class="photo-preview">
         <div class="photo-meta">
-          <span>${escapeHtml(item.name)}</span>
-          <div class="list-actions">
-            <select onchange="moveItem('bryantos_photos', ${item.id}, this.value)">
-              ${buildFolderOptions(item.folder)}
-            </select>
-            <button onclick="deletePhoto(${item.id})">Delete</button>
-          </div>
+          <div class="photo-title">${escapeHtml(shortenFileName(item.name))}</div>
+          <div class="photo-subtitle">Folder: ${escapeHtml(item.folder || "General")}</div>
+        </div>
+        <div class="photo-actions">
+          <select onchange="moveItem('bryantos_photos', ${item.id}, this.value)">
+            ${buildFolderOptions(item.folder)}
+          </select>
+          <button onclick="deletePhoto(${item.id})">Delete</button>
         </div>
       </div>
     `;

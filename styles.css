@@ -386,15 +386,33 @@ ul {
 
 .photo-meta {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
 }
 
-.photo-meta span {
-  flex: 1;
+.photo-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #fff;
+  line-height: 1.3;
   word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.photo-subtitle {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.4;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.photo-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
 .footer {
