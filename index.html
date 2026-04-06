@@ -9,6 +9,7 @@
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
   
   <style>
     .signin-btn {
@@ -110,55 +111,120 @@
     <button type="button" onclick="showSection('settings')">Settings</button>
   </nav>
 
+  <!-- Folder management bar (shared across all sections) -->
+  <div class="folder-panel" style="max-width:1000px;margin:18px auto 0;padding:0 16px;">
+    <div style="background:rgba(23,32,51,0.9);border:1px solid rgba(255,255,255,0.08);border-radius:18px;padding:18px;">
+      <div class="folder-toolbar">
+        <div class="folder-select-wrap">
+          <label>Current Folder</label>
+          <div class="inline-row">
+            <select id="folderSelect" onchange="changeFolder()"></select>
+            <button type="button" class="danger-btn" onclick="deleteCurrentFolder()">Delete</button>
+          </div>
+        </div>
+        <div class="folder-add-wrap">
+          <label>New Folder</label>
+          <div class="inline-row">
+            <input type="text" id="newFolderInput" placeholder="Folder name…">
+            <button type="button" onclick="addFolder()">Add</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <main class="main-content">
     <div id="dashboard" class="section active">
       <h2>Dashboard</h2>
-      <p>Welcome to your personalized dashboard.</p>
+      <p>Welcome to BryantOS. Select a section above to get started.</p>
     </div>
 
-    <div id="notes" class="section" hidden>
+    <div id="notes" class="section">
       <h2>Notes</h2>
-      <p>Your notes section content goes here.</p>
+      <p class="section-folder-label">Folder: <span id="notesFolderLabel"></span></p>
+      <textarea id="notesInput" placeholder="Write your notes here…"></textarea>
+      <button type="button" onclick="saveNotes()">Save Notes</button>
     </div>
 
-    <div id="photos" class="section" hidden>
+    <div id="photos" class="section">
       <h2>Photos</h2>
-      <p>Your photo gallery will appear here.</p>
+      <p class="section-folder-label">Folder: <span id="photosFolderLabel"></span></p>
+      <input type="file" id="photoInput" accept="image/*" onchange="addPhoto(event)">
+      <ul id="photoList"></ul>
     </div>
 
-    <div id="mail" class="section" hidden>
+    <div id="mail" class="section">
       <h2>Inbox Vault</h2>
-      <p>Your secure email storage.</p>
+      <p class="section-folder-label">Folder: <span id="mailFolderLabel"></span></p>
+      <div class="inline-row">
+        <input type="text" id="mailInput" placeholder="Add a message or email…">
+        <button type="button" onclick="addMail()">Add</button>
+      </div>
+      <ul id="mailList"></ul>
     </div>
 
-    <div id="money" class="section" hidden>
+    <div id="money" class="section">
       <h2>Money</h2>
-      <p>Financial tracking and management.</p>
+      <p class="section-folder-label">Folder: <span id="moneyFolderLabel"></span></p>
+      <div class="inline-row">
+        <input type="text" id="moneyDesc" placeholder="Description…">
+        <input type="text" id="moneyAmount" placeholder="+100 or -50">
+        <button type="button" onclick="addMoney()">Add</button>
+      </div>
+      <ul id="moneyList"></ul>
     </div>
 
-    <div id="bills" class="section" hidden>
+    <div id="bills" class="section">
       <h2>Bills</h2>
-      <p>Bill management and payment tracking.</p>
+      <p class="section-folder-label">Folder: <span id="billsFolderLabel"></span></p>
+      <div class="inline-row">
+        <input type="text" id="billInput" placeholder="Bill name or description…">
+        <button type="button" onclick="addBill()">Add</button>
+      </div>
+      <ul id="billList"></ul>
     </div>
 
-    <div id="links" class="section" hidden>
+    <div id="links" class="section">
       <h2>Links</h2>
-      <p>Your saved links and bookmarks.</p>
+      <p class="section-folder-label">Folder: <span id="linksFolderLabel"></span></p>
+      <div class="inline-row">
+        <input type="text" id="linkInput" placeholder="https://… or email@example.com">
+        <button type="button" onclick="addLink()">Add</button>
+      </div>
+      <ul id="linkList"></ul>
     </div>
 
-    <div id="codes" class="section" hidden>
+    <div id="codes" class="section">
       <h2>Vault</h2>
-      <p>Secure password and code storage.</p>
+      <p class="section-folder-label">Folder: <span id="codesFolderLabel"></span></p>
+      <div class="inline-row">
+        <input type="text" id="codeInput" placeholder="Password or code…">
+        <button type="button" onclick="addCode()">Add</button>
+      </div>
+      <ul id="codeList"></ul>
     </div>
 
-    <div id="calendar" class="section" hidden>
+    <div id="calendar" class="section">
       <h2>Calendar</h2>
-      <p>Your schedule and events.</p>
+      <p class="section-folder-label">Folder: <span id="calendarFolderLabel"></span></p>
+      <div class="inline-row">
+        <input type="date" id="dateInput">
+        <input type="text" id="eventInput" placeholder="Event description…">
+        <button type="button" onclick="addEvent()">Add</button>
+      </div>
+      <ul id="eventList"></ul>
     </div>
 
-    <div id="settings" class="section" hidden>
+    <div id="settings" class="section">
       <h2>Settings</h2>
-      <p>System preferences and configuration.</p>
+      <h3>Contacts</h3>
+      <p class="section-folder-label">Folder: <span id="contactsFolderLabel"></span></p>
+      <div class="inline-row">
+        <input type="text" id="contactName" placeholder="Name…">
+        <input type="tel" id="contactNumber" placeholder="Phone number…">
+        <button type="button" onclick="addContact()">Add</button>
+      </div>
+      <ul id="contactList"></ul>
     </div>
   </main>
 
@@ -173,7 +239,7 @@
       measurementId: "G-Z1CRR27XLS"
     };
 
-    // Initialize Firebase
+    // Initialize Firebase (app.js will reuse this instance)
     firebase.initializeApp(firebaseConfig);
 
     // DOM elements
@@ -183,83 +249,36 @@
     const userAvatar = document.getElementById('userAvatar');
     const userName = document.getElementById('userName');
 
-    // Auth state listener
+    // Auth state listener — updates header UI only
     firebase.auth().onAuthStateChanged((user) => {
       if (user) {
-        // User is signed in
         signInBtn.hidden = true;
         signOutBtn.hidden = false;
         userInfo.hidden = false;
-        
-        // Update user info
         userAvatar.src = user.photoURL || 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik0yMCAyMXYtMmE0IDQgMCAwIDAtNC00SDhhNCA0IDAgMCAwLTQgNHYyIj48L3BhdGg+PGNpcmNsZSBjeD0iMTIiIGN5PSI3IiByPSI0Ij48L2NpcmNsZT48L3N2Zz4=';
         userName.textContent = user.displayName || user.email;
-        
-        console.log('User signed in:', user.email);
       } else {
-        // User is signed out
         signInBtn.hidden = false;
         signOutBtn.hidden = true;
         userInfo.hidden = true;
-        
-        console.log('User signed out');
       }
     });
 
-    // Google Sign-In function
+    // Google Sign-In
     signInBtn.addEventListener('click', () => {
       const provider = new firebase.auth.GoogleAuthProvider();
       provider.addScope('email');
       provider.addScope('profile');
-      
-      firebase.auth().signInWithPopup(provider)
-        .then((result) => {
-          // Signed in successfully
-          console.log('Sign-in successful', result.user);
-        })
-        .catch((error) => {
-          console.error('Sign-in error:', error);
-          alert('Sign-in failed: ' + error.message);
-        });
-    });
-
-    // Sign out function
-    signOutBtn.addEventListener('click', () => {
-      firebase.auth().signOut()
-        .then(() => {
-          console.log('User signed out successfully');
-        })
-        .catch((error) => {
-          console.error('Sign-out error:', error);
-        });
-    });
-
-    // Section navigation functions
-    function showSection(sectionId) {
-      // Hide all sections
-      document.querySelectorAll('.section').forEach(section => {
-        section.hidden = true;
-        section.classList.remove('active');
+      firebase.auth().signInWithPopup(provider).catch((error) => {
+        alert('Sign-in failed: ' + error.message);
       });
-      
-      // Show the selected section
-      const selectedSection = document.getElementById(sectionId);
-      if (selectedSection) {
-        selectedSection.hidden = false;
-        selectedSection.classList.add('active');
-      }
-    }
+    });
 
-    function runSearch() {
-      const searchTerm = document.getElementById('globalSearch').value;
-      console.log('Searching for:', searchTerm);
-      // Implement your search functionality here
-    }
-
-    // Initialize the dashboard as active
-    document.addEventListener('DOMContentLoaded', function() {
-      showSection('dashboard');
+    // Sign out
+    signOutBtn.addEventListener('click', () => {
+      firebase.auth().signOut();
     });
   </script>
+  <script src="app.js"></script>
 </body>
 </html>
