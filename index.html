@@ -5,13 +5,74 @@
   <title>BryantOS</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="styles.css">
+  
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  
+  <style>
+    .signin-btn {
+      background-color: #4285F4;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-right: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .signin-btn:hover {
+      background-color: #357ae8;
+    }
+    
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-right: 15px;
+      color: #555;
+    }
+    
+    .user-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+    }
+    
+    .auth-container {
+      display: flex;
+      align-items: center;
+    }
+  </style>
 </head>
 <body>
 
   <header class="header">
     <h1>BryantOS</h1>
     <p class="tagline">The tasks you avoid often hold the most value.</p>
-    <button class="signout-btn" type="button" onclick="logoutBryantOS()">Sign Out</button>
+    
+    <div class="auth-container">
+      <div id="userInfo" class="user-info" hidden>
+        <img id="userAvatar" class="user-avatar" src="" alt="User avatar">
+        <span id="userName"></span>
+      </div>
+      
+      <button id="googleSignInBtn" class="signin-btn" type="button">
+        <svg width="18" height="18" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+        </svg>
+        Sign In with Google
+      </button>
+      
+      <button id="signOutBtn" class="signout-btn" type="button" hidden>Sign Out</button>
+    </div>
   </header>
 
   <div id="syncError" class="sync-error" hidden>
@@ -46,158 +107,159 @@
     <button type="button" onclick="showSection('links')">Links</button>
     <button type="button" onclick="showSection('codes')">Vault</button>
     <button type="button" onclick="showSection('calendar')">Calendar</button>
-    <button type="button" onclick="showSection('contacts')">Contacts</button>
+    <button type="button" onclick="showSection('settings')">Settings</button>
   </nav>
 
-  <main>
-    <section class="section active" id="dashboard">
+  <main class="main-content">
+    <div id="dashboard" class="section active">
       <h2>Dashboard</h2>
-      <p>Welcome back. Stay sharp. Stay organised.</p>
+      <p>Welcome to your personalized dashboard.</p>
+    </div>
 
-      <div class="folder-panel">
-        <h3>Folders</h3>
-
-        <div class="folder-toolbar">
-          <div class="folder-select-wrap">
-            <label for="folderSelect">Current folder</label>
-            <select id="folderSelect" onchange="changeFolder()"></select>
-          </div>
-
-          <div class="folder-add-wrap">
-            <label for="newFolderInput">Add folder</label>
-            <div class="inline-row">
-              <input
-                id="newFolderInput"
-                type="text"
-                placeholder="New folder name"
-                onkeydown="if(event.key==='Enter'){event.preventDefault();addFolder()}"
-              >
-              <button type="button" onclick="addFolder()">Add Folder</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="folder-actions">
-          <button class="danger-btn" type="button" onclick="deleteCurrentFolder()">Delete Current Folder</button>
-        </div>
-
-        <p class="folder-hint">
-          Items you add in Notes, Photos, Inbox Vault, Money, Bills, Links, Vault, Calendar and Contacts will save into the selected folder.
-        </p>
-      </div>
-    </section>
-
-    <section class="section" id="notes">
+    <div id="notes" class="section" hidden>
       <h2>Notes</h2>
-      <p class="section-folder-label">Folder: <span id="notesFolderLabel"></span></p>
-      <textarea id="notesInput" placeholder="Write notes here..."></textarea>
-      <button type="button" onclick="saveNotes()">Save Notes</button>
-    </section>
+      <p>Your notes section content goes here.</p>
+    </div>
 
-    <section class="section" id="photos">
-      <h2>Photos / Screenshots</h2>
-      <p class="section-folder-label">Folder: <span id="photosFolderLabel"></span></p>
-      <input type="file" id="photoInput" accept="image/*" onchange="addPhoto(event)">
-      <ul id="photoList"></ul>
-    </section>
+    <div id="photos" class="section" hidden>
+      <h2>Photos</h2>
+      <p>Your photo gallery will appear here.</p>
+    </div>
 
-    <section class="section" id="mail">
+    <div id="mail" class="section" hidden>
       <h2>Inbox Vault</h2>
-      <p class="section-folder-label">Folder: <span id="mailFolderLabel"></span></p>
-      <input
-        id="mailInput"
-        placeholder="Paste important email or task..."
-        onkeydown="if(event.key==='Enter'){event.preventDefault();addMail()}"
-      >
-      <button type="button" onclick="addMail()">Add</button>
-      <ul id="mailList"></ul>
-    </section>
+      <p>Your secure email storage.</p>
+    </div>
 
-    <section class="section" id="money">
-      <h2>Money Tracker</h2>
-      <p class="section-folder-label">Folder: <span id="moneyFolderLabel"></span></p>
-      <input
-        id="moneyDesc"
-        placeholder="Description"
-        onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('moneyAmount').focus()}"
-      >
-      <input
-        id="moneyAmount"
-        placeholder="+ or - amount"
-        onkeydown="if(event.key==='Enter'){event.preventDefault();addMoney()}"
-      >
-      <button type="button" onclick="addMoney()">Add</button>
-      <ul id="moneyList"></ul>
-    </section>
+    <div id="money" class="section" hidden>
+      <h2>Money</h2>
+      <p>Financial tracking and management.</p>
+    </div>
 
-    <section class="section" id="bills">
+    <div id="bills" class="section" hidden>
       <h2>Bills</h2>
-      <p class="section-folder-label">Folder: <span id="billsFolderLabel"></span></p>
-      <input
-        id="billInput"
-        placeholder="Bill name..."
-        onkeydown="if(event.key==='Enter'){event.preventDefault();addBill()}"
-      >
-      <button type="button" onclick="addBill()">Add</button>
-      <ul id="billList"></ul>
-    </section>
+      <p>Bill management and payment tracking.</p>
+    </div>
 
-    <section class="section" id="links">
-      <h2>Important Links</h2>
-      <p class="section-folder-label">Folder: <span id="linksFolderLabel"></span></p>
-      <input
-        id="linkInput"
-        placeholder="Paste URL or email..."
-        onkeydown="if(event.key==='Enter'){event.preventDefault();addLink()}"
-      >
-      <button type="button" onclick="addLink()">Add</button>
-      <ul id="linkList"></ul>
-    </section>
+    <div id="links" class="section" hidden>
+      <h2>Links</h2>
+      <p>Your saved links and bookmarks.</p>
+    </div>
 
-    <section class="section" id="codes">
-      <h2>Secure Vault</h2>
-      <p class="section-folder-label">Folder: <span id="codesFolderLabel"></span></p>
-      <input
-        id="codeInput"
-        placeholder="Store code / password / key..."
-        onkeydown="if(event.key==='Enter'){event.preventDefault();addCode()}"
-      >
-      <button type="button" onclick="addCode()">Add</button>
-      <ul id="codeList"></ul>
-    </section>
+    <div id="codes" class="section" hidden>
+      <h2>Vault</h2>
+      <p>Secure password and code storage.</p>
+    </div>
 
-    <section class="section" id="calendar">
+    <div id="calendar" class="section" hidden>
       <h2>Calendar</h2>
-      <p class="section-folder-label">Folder: <span id="calendarFolderLabel"></span></p>
-      <input type="date" id="dateInput">
-      <input
-        id="eventInput"
-        placeholder="Event..."
-        onkeydown="if(event.key==='Enter'){event.preventDefault();addEvent()}"
-      >
-      <button type="button" onclick="addEvent()">Add</button>
-      <ul id="eventList"></ul>
-    </section>
+      <p>Your schedule and events.</p>
+    </div>
 
-    <section class="section" id="contacts">
-      <h2>Important Contacts</h2>
-      <p class="section-folder-label">Folder: <span id="contactsFolderLabel"></span></p>
-      <input id="contactName" placeholder="Name">
-      <input
-        id="contactNumber"
-        placeholder="Number"
-        onkeydown="if(event.key==='Enter'){event.preventDefault();addContact()}"
-      >
-      <button type="button" onclick="addContact()">Add</button>
-      <ul id="contactList"></ul>
-    </section>
+    <div id="settings" class="section" hidden>
+      <h2>Settings</h2>
+      <p>System preferences and configuration.</p>
+    </div>
   </main>
 
-  <footer class="footer">
-    <p>Don’t forget why you started. Finish what matters.</p>
-  </footer>
+  <script>
+    // Firebase configuration - REPLACE WITH YOUR ACTUAL VALUES
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "bryantos-your-project.firebaseapp.com",
+      projectId: "bryantos-your-project",
+      storageBucket: "bryantos-your-project.appspot.com",
+      messagingSenderId: "123456789",
+      appId: "YOUR_APP_ID"
+    };
 
-  <script defer src="./app.js"></script>
-  <script type="module" src="./auth.js"></script>
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+
+    // DOM elements
+    const signInBtn = document.getElementById('googleSignInBtn');
+    const signOutBtn = document.getElementById('signOutBtn');
+    const userInfo = document.getElementById('userInfo');
+    const userAvatar = document.getElementById('userAvatar');
+    const userName = document.getElementById('userName');
+
+    // Auth state listener
+    firebase.auth().onAuthStateChanged((user) => {
+      if (user) {
+        // User is signed in
+        signInBtn.hidden = true;
+        signOutBtn.hidden = false;
+        userInfo.hidden = false;
+        
+        // Update user info
+        userAvatar.src = user.photoURL || 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik0yMCAyMXYtMmE0IDQgMCAwIDAtNC00SDhhNCA0IDAgMCAwLTQgNHYyIj48L3BhdGg+PGNpcmNsZSBjeD0iMTIiIGN5PSI3IiByPSI0Ij48L2NpcmNsZT48L3N2Zz4=';
+        userName.textContent = user.displayName || user.email;
+        
+        console.log('User signed in:', user.email);
+      } else {
+        // User is signed out
+        signInBtn.hidden = false;
+        signOutBtn.hidden = true;
+        userInfo.hidden = true;
+        
+        console.log('User signed out');
+      }
+    });
+
+    // Google Sign-In function
+    signInBtn.addEventListener('click', () => {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      provider.addScope('email');
+      provider.addScope('profile');
+      
+      firebase.auth().signInWithPopup(provider)
+        .then((result) => {
+          // Signed in successfully
+          console.log('Sign-in successful', result.user);
+        })
+        .catch((error) => {
+          console.error('Sign-in error:', error);
+          alert('Sign-in failed: ' + error.message);
+        });
+    });
+
+    // Sign out function
+    signOutBtn.addEventListener('click', () => {
+      firebase.auth().signOut()
+        .then(() => {
+          console.log('User signed out successfully');
+        })
+        .catch((error) => {
+          console.error('Sign-out error:', error);
+        });
+    });
+
+    // Section navigation functions
+    function showSection(sectionId) {
+      // Hide all sections
+      document.querySelectorAll('.section').forEach(section => {
+        section.hidden = true;
+        section.classList.remove('active');
+      });
+      
+      // Show the selected section
+      const selectedSection = document.getElementById(sectionId);
+      if (selectedSection) {
+        selectedSection.hidden = false;
+        selectedSection.classList.add('active');
+      }
+    }
+
+    function runSearch() {
+      const searchTerm = document.getElementById('globalSearch').value;
+      console.log('Searching for:', searchTerm);
+      // Implement your search functionality here
+    }
+
+    // Initialize the dashboard as active
+    document.addEventListener('DOMContentLoaded', function() {
+      showSection('dashboard');
+    });
+  </script>
 </body>
 </html>
