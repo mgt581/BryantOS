@@ -1294,7 +1294,9 @@ document.addEventListener("DOMContentLoaded", function() {
           _vaultPin = _restoredPin;
           console.log("[Vault] Session PIN restored, _vaultPin set");
         }
-      } catch (e) { /* ignore malformed session data */ }
+      } catch (e) {
+        console.warn("[Vault] Failed to restore session PIN:", e.message);
+      }
     }
 
     renderFolderDropdown();
