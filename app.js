@@ -949,6 +949,8 @@ function vaultSubmitPin() {
   const errorEl   = document.getElementById("vaultPinError");
   const pin = pinEl ? pinEl.value.trim() : "";
 
+  console.log("[Vault] Unlock clicked, _vaultPin before:", _vaultPin ? "set" : "null");
+
   if (errorEl) errorEl.textContent = "";
   if (!pin) {
     if (errorEl) errorEl.textContent = "Please enter a PIN.";
@@ -1108,13 +1110,22 @@ function deleteCode(id) {
 
 function renderCodes() {
   const list = document.getElementById("codeList");
+  console.log("[Vault] renderCodes called, _vaultPin:", _vaultPin ? "set" : "null");
   if (!list || !vaultIsUnlocked()) return;
 
   const items = getFilteredItems("bryantos_codes");
   list.innerHTML = "";
 
   items.forEach(item => {
-    const displayed = _decryptText(item.text, _vaultPin) || item.text;
+    const decrypted = _decryptText(item.text, _vaultPin);
+    let displayed;
+    if (decrypted) {
+      console.log("[Vault] Decrypted:", decrypted);
+      displayed = decrypted;
+    } else {
+      console.warn("[Vault] Decryption failed", item);
+      displayed = "Unable to decrypt";
+    }
     const li = document.createElement("li");
     li.className = "list-item";
     li.innerHTML = `
@@ -1273,6 +1284,20 @@ document.addEventListener("DOMContentLoaded", function() {
 
     // Pull latest data from Firestore into localStorage, then render
     await loadFromFirestore();
+
+    // Restore vault PIN from session so items render without re-entering PIN.
+    const _sessPin = sessionStorage.getItem("vault_sess");
+    if (_sessPin && vaultHasPin()) {
+      try {
+        const _restoredPin = atob(_sessPin);
+        if (_vaultHashPin(_restoredPin) === localStorage.getItem(VAULT_PIN_HASH_KEY)) {
+          _vaultPin = _restoredPin;
+          console.log("[Vault] Session PIN restored, _vaultPin set");
+        }
+      } catch (e) {
+        console.warn("[Vault] Failed to restore session PIN:", e.message);
+      }
+    }
 
     renderFolderDropdown();
     updateFolderLabels();

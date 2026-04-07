@@ -609,6 +609,19 @@ ul {
   margin-bottom: 0;
 }
 
+.vault-status-unlocked {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: color-mix(in srgb, #22c55e 15%, transparent);
+  color: #22c55e;
+  border: 1px solid color-mix(in srgb, #22c55e 40%, transparent);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
 .vault-lock-btn {
   background: transparent;
   border: 1px solid var(--line);
