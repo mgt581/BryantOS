@@ -343,7 +343,8 @@ function runSearch() {
   const items = activeSection.querySelectorAll(".list-item, .photo-item");
   items.forEach(item => {
     const text = item.innerText.toLowerCase();
-    item.style.display = text.includes(query) ? "" : "none";
+    const searchAttr = (item.dataset.search || "").toLowerCase();
+    item.style.display = (text.includes(query) || searchAttr.includes(query)) ? "" : "none";
   });
 }
 
@@ -458,6 +459,7 @@ function renderPhotos() {
   items.forEach(item => {
     const li = document.createElement("li");
     li.className = "photo-item";
+    li.dataset.search = (item.name || "").toLowerCase();
     li.innerHTML = `
       <div class="photo-card">
         <img src="${item.data}" alt="${escapeAttribute(item.name)}" class="photo-preview">
