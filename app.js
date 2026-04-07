@@ -864,15 +864,23 @@ function _vaultReEncryptAll(oldPin, newPin) {
   setStoredData("bryantos_codes", reEncrypted);
 }
 
-// Encode a PIN for sessionStorage (safe for any characters).
+// Encode a PIN for sessionStorage (safe for any Unicode characters).
 function _vaultEncodeSession(pin) {
-  return btoa(unescape(encodeURIComponent(String(pin))));
+  const bytes = new TextEncoder().encode(String(pin));
+  let binary = "";
+  bytes.forEach(b => { binary += String.fromCharCode(b); });
+  return btoa(binary);
 }
 
 // Decode a PIN from sessionStorage. Returns null on any error.
 function _vaultDecodeSession(encoded) {
   try {
-    return decodeURIComponent(escape(atob(encoded)));
+    const binary = atob(encoded);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new TextDecoder().decode(bytes);
   } catch {
     return null;
   }
