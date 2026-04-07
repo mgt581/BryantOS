@@ -153,6 +153,16 @@
     <div id="photos" class="section">
       <h2>Photos</h2>
       <p class="section-folder-label">Folder: <span id="photosFolderLabel"></span></p>
+      <div class="inline-row" style="margin-bottom:8px;">
+        <input type="text" id="newAlbumInput" placeholder="New album name…">
+        <button type="button" onclick="createAlbum()">Create Album</button>
+      </div>
+      <div class="inline-row" style="margin-bottom:8px;">
+        <label for="albumFilter" style="white-space:nowrap;">Album:</label>
+        <select id="albumFilter" onchange="renderPhotos()">
+          <option value="">All Photos</option>
+        </select>
+      </div>
       <input type="file" id="photoInput" accept="image/*" onchange="addPhoto(event)">
       <ul id="photoList"></ul>
     </div>

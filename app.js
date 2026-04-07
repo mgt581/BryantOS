@@ -26,7 +26,8 @@ const SYNC_KEYS = [
   "bryantos_contacts",
   "bryantos_vault_pin_hash",
   "bryantos_vault_pin_salt",
-  "bryantos_vault_encrypted"
+  "bryantos_vault_encrypted",
+  "bryantos_photo_albums"
 ];
 
 // ── Vault encryption state ─────────────────────────────────────────────────────
@@ -288,6 +289,10 @@ function deleteCurrentFolder() {
   deleteItemsForFolder("bryantos_contacts", currentFolder);
   deleteItemsForFolder("bryantos_photos", currentFolder);
 
+  const allAlbums = getPhotoAlbums();
+  delete allAlbums[currentFolder];
+  setPhotoAlbums(allAlbums);
+
   localStorage.removeItem(getNotesKey(currentFolder));
 
   const nextFolder = updatedFolders[0] || DEFAULT_FOLDERS[0];
@@ -305,6 +310,7 @@ function refreshFolderState() {
   updateFolderLabels();
   applyFolderColor();
   loadNotes();
+  renderAlbumFilter("");
   renderPhotos();
   renderMail();
   renderMoney();
@@ -373,6 +379,85 @@ function loadNotes() {
   const savedNotes = localStorage.getItem(getNotesKey(currentFolder)) || "";
   const notesInput = document.getElementById("notesInput");
   if (notesInput) notesInput.value = savedNotes;
+}
+
+/* Photo Albums */
+const ALBUMS_KEY = "bryantos_photo_albums";
+
+function getPhotoAlbums() {
+  return getStoredData(ALBUMS_KEY, {});
+}
+
+function setPhotoAlbums(data) {
+  setStoredData(ALBUMS_KEY, data);
+}
+
+function getAlbumsForFolder(folder) {
+  const all = getPhotoAlbums();
+  return Array.isArray(all[folder]) ? all[folder] : [];
+}
+
+function createAlbum() {
+  const input = document.getElementById("newAlbumInput");
+  if (!input) return;
+
+  const name = input.value.trim();
+  if (!name) {
+    alert("Enter an album name.");
+    return;
+  }
+
+  const folder = getCurrentFolder();
+  const all = getPhotoAlbums();
+  const albums = Array.isArray(all[folder]) ? all[folder] : [];
+
+  if (albums.some(a => a.toLowerCase() === name.toLowerCase())) {
+    alert("Album already exists in this folder.");
+    return;
+  }
+
+  albums.push(name);
+  all[folder] = albums;
+  setPhotoAlbums(all);
+  input.value = "";
+  renderAlbumFilter(name);
+  renderPhotos();
+}
+
+function renderAlbumFilter(selectAlbum) {
+  const select = document.getElementById("albumFilter");
+  if (!select) return;
+
+  const folder = getCurrentFolder();
+  const albums = getAlbumsForFolder(folder);
+  const current = selectAlbum !== undefined ? selectAlbum : select.value;
+
+  select.innerHTML = `<option value="">All Photos</option>` +
+    albums.map(a => `<option value="${escapeAttribute(a)}"${a === current ? " selected" : ""}>${escapeHtml(a)}</option>`).join("");
+}
+
+function getCurrentAlbum() {
+  const select = document.getElementById("albumFilter");
+  return select ? select.value : "";
+}
+
+function buildAlbumOptions(selectedAlbum, folder) {
+  const albums = getAlbumsForFolder(folder);
+  return `<option value=""${selectedAlbum === "" || selectedAlbum === null || selectedAlbum === undefined ? " selected" : ""}>No Album</option>` +
+    albums.map(a => `<option value="${escapeAttribute(a)}"${a === selectedAlbum ? " selected" : ""}>${escapeHtml(a)}</option>`).join("");
+}
+
+async function movePhotoToAlbum(docId, newAlbum) {
+  if (!_db || !_uid) return;
+  try {
+    await _db
+      .collection("users").doc(_uid)
+      .collection("photos").doc(docId)
+      .update({ album: newAlbum });
+    await loadPhotos();
+  } catch (err) {
+    console.error("[Photos] Album move failed:", err);
+  }
 }
 
 /* Photos */
@@ -452,6 +537,7 @@ async function addPhoto(event) {
             name: file.name,
             url: url,
             folder: folder,
+            album: getCurrentAlbum(),
             storagePath: storagePath,
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
           });
@@ -542,7 +628,13 @@ function renderPhotos() {
   if (!list) return;
 
   const currentFolder = getCurrentFolder();
-  const items = _firestorePhotos.filter(item => item.folder === currentFolder);
+  const selectedAlbum = getCurrentAlbum();
+  let items = _firestorePhotos.filter(item => item.folder === currentFolder);
+
+  if (selectedAlbum !== "") {
+    items = items.filter(item => (item.album || "") === selectedAlbum);
+  }
+
   list.innerHTML = "";
 
   items.forEach(item => {
@@ -555,10 +647,14 @@ function renderPhotos() {
         <div class="photo-meta">
           <div class="photo-title">${escapeHtml(shortenFileName(item.name))}</div>
           <div class="photo-subtitle">Folder: ${escapeHtml(item.folder || "General")}</div>
+          <div class="photo-subtitle">Album: ${escapeHtml(item.album || "No Album")}</div>
         </div>
         <div class="photo-actions">
           <select onchange="movePhoto('${escapeAttribute(item.docId)}', this.value)">
             ${buildFolderOptions(item.folder)}
+          </select>
+          <select onchange="movePhotoToAlbum('${escapeAttribute(item.docId)}', this.value)">
+            ${buildAlbumOptions(item.album || "", currentFolder)}
           </select>
           <button onclick="deletePhoto('${escapeAttribute(item.docId)}')">Delete</button>
         </div>
@@ -1390,6 +1486,7 @@ document.addEventListener("DOMContentLoaded", function() {
     applyFolderColor();
     loadNotes();
     await loadPhotos();
+    renderAlbumFilter();
     renderMail();
     renderMoney();
     renderBills();
