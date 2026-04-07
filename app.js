@@ -343,7 +343,8 @@ function runSearch() {
   const items = activeSection.querySelectorAll(".list-item, .photo-item");
   items.forEach(item => {
     const text = item.innerText.toLowerCase();
-    item.style.display = text.includes(query) ? "" : "none";
+    const searchAttr = (item.dataset.search || "").toLowerCase();
+    item.style.display = (text.includes(query) || searchAttr.includes(query)) ? "" : "none";
   });
 }
 
@@ -436,6 +437,18 @@ function deletePhoto(id) {
   renderPhotos();
 }
 
+function shortenFileName(name, max = 28) {
+  if (!name) return "Untitled image";
+  if (name.length <= max) return name;
+  const extIndex = name.lastIndexOf(".");
+  if (extIndex === -1) return name.slice(0, max) + "...";
+  const ext = name.slice(extIndex);
+  const base = name.slice(0, extIndex);
+  const baseMax = max - ext.length - 3;
+  if (baseMax <= 0) return name.slice(0, max) + "...";
+  return base.slice(0, baseMax) + "..." + ext;
+}
+
 function renderPhotos() {
   const list = document.getElementById("photoList");
   if (!list) return;
@@ -446,17 +459,19 @@ function renderPhotos() {
   items.forEach(item => {
     const li = document.createElement("li");
     li.className = "photo-item";
+    li.dataset.search = (item.name || "").toLowerCase();
     li.innerHTML = `
       <div class="photo-card">
         <img src="${item.data}" alt="${escapeAttribute(item.name)}" class="photo-preview">
         <div class="photo-meta">
-          <span>${escapeHtml(item.name)}</span>
-          <div class="list-actions">
-            <select onchange="moveItem('bryantos_photos', ${item.id}, this.value)">
-              ${buildFolderOptions(item.folder)}
-            </select>
-            <button onclick="deletePhoto(${item.id})">Delete</button>
-          </div>
+          <div class="photo-title">${escapeHtml(shortenFileName(item.name))}</div>
+          <div class="photo-subtitle">Folder: ${escapeHtml(item.folder || "General")}</div>
+        </div>
+        <div class="photo-actions">
+          <select onchange="moveItem('bryantos_photos', ${item.id}, this.value)">
+            ${buildFolderOptions(item.folder)}
+          </select>
+          <button onclick="deletePhoto(${item.id})">Delete</button>
         </div>
       </div>
     `;
