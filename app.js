@@ -1184,14 +1184,21 @@ function renderCodes() {
 
   items.forEach(item => {
     console.log("[Vault] decrypt PIN present:", _vaultPin !== null);
-    const decrypted = _decryptText(item.text, _vaultPin);
-    let displayed;
-    if (decrypted) {
-      console.log("[Vault] item rendered as decrypted");
-      displayed = decrypted;
-    } else {
+    let decrypted = _decryptText(item.text, _vaultPin);
+    // If the first decrypt returns something that still looks like ciphertext,
+    // the item was double-encrypted — decrypt again to recover the plaintext.
+    if (decrypted && _isLikelyCiphertext(decrypted)) {
+      console.log("[Vault] item appears double-encrypted — running second decrypt pass, item id:", item.id);
+      const secondPass = _decryptText(decrypted, _vaultPin);
+      if (secondPass && secondPass.trim()) {
+        decrypted = secondPass;
+      }
+    }
+    const displayed = (decrypted && decrypted.trim() !== "") ? decrypted : "Unable to decrypt";
+    if (displayed === "Unable to decrypt") {
       console.warn("[Vault] item decryption failed — showing placeholder, item id:", item.id);
-      displayed = "Unable to decrypt";
+    } else {
+      console.log("[Vault] item rendered as decrypted");
     }
     const li = document.createElement("li");
     li.className = "list-item";
