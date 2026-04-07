@@ -846,10 +846,25 @@ function vaultIsUnlocked() {
   return _vaultPin !== null;
 }
 
+// CryptoJS AES.encrypt() output (OpenSSL format) always starts with this prefix
+// (base64 of the "Salted__" + 8-byte salt header). Used to detect existing ciphertext.
+function _isLikelyCiphertext(text) {
+  return typeof text === "string" && text.startsWith("U2FsdGVkX1");
+}
+
 // Encrypt all existing vault entries in-place with the given PIN.
+// Skips items that are already CryptoJS ciphertext to prevent double-encryption
+// when localStorage is fresh but Firestore data was encrypted in a prior session.
 function _vaultEncryptAll(pin) {
   const items = getStoredData("bryantos_codes", []);
-  const encrypted = items.map(item => ({ ...item, text: _encryptText(item.text, pin) }));
+  const encrypted = items.map(item => {
+    if (_isLikelyCiphertext(item.text)) {
+      console.log("[Vault] _vaultEncryptAll: item already encrypted, skipping id:", item.id);
+      return item;
+    }
+    console.log("[Vault] _vaultEncryptAll: encrypting plaintext item id:", item.id);
+    return { ...item, text: _encryptText(item.text, pin) };
+  });
   setStoredData("bryantos_codes", encrypted);
   localStorage.setItem(VAULT_ENC_FLAG_KEY, "true");
 }
@@ -897,6 +912,9 @@ function vaultSetNewPin(pin) {
   localStorage.setItem(VAULT_PIN_HASH_KEY, _vaultHashPin(pin));
   _vaultPin = pin;
   sessionStorage.setItem("vault_sess", _vaultEncodeSession(pin));
+  // Immediately sync hash/salt/flag to Firestore so they are available on the
+  // next fresh-localStorage load (e.g. new device, cleared storage, private window).
+  scheduleSyncToFirestore();
 }
 
 // Try to unlock the vault with the given PIN. Returns true on success.
