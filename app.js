@@ -1,7 +1,11 @@
 // ── Firebase references (populated after auth) ────────────────────────────────
-let _db  = null;
-let _uid = null;
+let _db       = null;
+let _storage  = null;
+let _uid      = null;
 let _saveTimer = null;
+
+// In-memory cache of photos loaded from Firestore.
+let _firestorePhotos = [];
 
 // Delay (ms) before flushing localStorage changes to Firestore.
 // Short enough to feel instant; long enough to batch rapid edits into one write.
@@ -398,43 +402,122 @@ function compressImage(dataUrl, maxDimension, quality, callback) {
   img.src = dataUrl;
 }
 
-function addPhoto(event) {
+function dataUrlToBlob(dataUrl) {
+  const [header, base64] = dataUrl.split(",");
+  const mime = header.match(/:(.*?);/)[1];
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mime });
+}
+
+async function addPhoto(event) {
   const file = event.target.files[0];
   if (!file) return;
 
+  if (!_uid || !_storage || !_db) {
+    alert("Not signed in. Please sign in and try again.");
+    return;
+  }
+
+  const folder = getCurrentFolder();
+  const timestamp = Date.now();
+  const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const fileName = `${timestamp}_${sanitizedName}`;
+  const storagePath = `users/${_uid}/photos/${folder}/${fileName}`;
+
+  console.log("[Photos] Upload start:", fileName);
+
   const reader = new FileReader();
   reader.onload = function(e) {
-    compressImage(e.target.result, 1200, 0.75, function(compressedData) {
-      const items = getStoredData("bryantos_photos", []);
-      const newPhoto = {
-        id: Date.now(),
-        folder: getCurrentFolder(),
-        name: file.name,
-        data: compressedData
-      };
-      items.unshift(newPhoto);
+    compressImage(e.target.result, 1200, 0.75, async function(compressedDataUrl) {
+      try {
+        const blob = dataUrlToBlob(compressedDataUrl);
+        const storageRef = _storage.ref(storagePath);
+        await storageRef.put(blob);
+        const url = await storageRef.getDownloadURL();
+        console.log("[Photos] Upload success:", url);
 
-      const saved = setStoredData("bryantos_photos", items);
+        await _db
+          .collection("users").doc(_uid)
+          .collection("photos")
+          .add({
+            name: file.name,
+            url: url,
+            folder: folder,
+            storagePath: storagePath,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        console.log("[Photos] Firestore save success");
 
-      if (!saved) {
-        alert("Could not save the photo — storage is full. Please delete some existing photos and try again.");
-        return;
+        const input = document.getElementById("photoInput");
+        if (input) input.value = "";
+
+        await loadPhotos();
+      } catch (err) {
+        console.error("[Photos] Upload failed:", err);
+        alert("Photo upload failed. Please try again.");
       }
-
-      const input = document.getElementById("photoInput");
-      if (input) input.value = "";
-
-      renderPhotos();
     });
   };
-
   reader.readAsDataURL(file);
 }
 
-function deletePhoto(id) {
-  const items = getStoredData("bryantos_photos", []).filter(item => item.id !== id);
-  setStoredData("bryantos_photos", items);
-  renderPhotos();
+async function deletePhoto(docId) {
+  if (!_db || !_uid) return;
+  try {
+    const docRef = _db.collection("users").doc(_uid).collection("photos").doc(docId);
+    const doc = await docRef.get();
+    if (doc.exists) {
+      const data = doc.data();
+      if (data.storagePath && _storage) {
+        try {
+          await _storage.ref(data.storagePath).delete();
+        } catch (storageErr) {
+          console.warn("[Photos] Storage delete failed:", storageErr);
+        }
+      }
+      await docRef.delete();
+    }
+    await loadPhotos();
+  } catch (err) {
+    console.error("[Photos] Delete failed:", err);
+  }
+}
+
+async function movePhoto(docId, newFolder) {
+  if (!_db || !_uid) return;
+  try {
+    await _db
+      .collection("users").doc(_uid)
+      .collection("photos").doc(docId)
+      .update({ folder: newFolder });
+    await loadPhotos();
+  } catch (err) {
+    console.error("[Photos] Move failed:", err);
+  }
+}
+
+async function loadPhotos() {
+  if (!_db || !_uid) return;
+  try {
+    const snapshot = await _db
+      .collection("users").doc(_uid)
+      .collection("photos")
+      .orderBy("createdAt", "desc")
+      .get();
+    _firestorePhotos = snapshot.docs.map(doc => ({ ...doc.data(), docId: doc.id }));
+    console.log("[Photos] Load results count:", _firestorePhotos.length);
+    renderPhotos();
+  } catch (err) {
+    if (err.code === "failed-precondition") {
+      console.error("[Photos] Missing Firestore index. Visit the Firebase console to create an index on 'photos.createdAt'.", err);
+    } else {
+      console.error("[Photos] Load failed:", err);
+    }
+  }
 }
 
 function shortenFileName(name, max = 28) {
@@ -453,7 +536,8 @@ function renderPhotos() {
   const list = document.getElementById("photoList");
   if (!list) return;
 
-  const items = getFilteredItems("bryantos_photos");
+  const currentFolder = getCurrentFolder();
+  const items = _firestorePhotos.filter(item => item.folder === currentFolder);
   list.innerHTML = "";
 
   items.forEach(item => {
@@ -462,16 +546,16 @@ function renderPhotos() {
     li.dataset.search = (item.name || "").toLowerCase();
     li.innerHTML = `
       <div class="photo-card">
-        <img src="${item.data}" alt="${escapeAttribute(item.name)}" class="photo-preview">
+        <img src="${escapeAttribute(item.url)}" alt="${escapeAttribute(item.name)}" class="photo-preview">
         <div class="photo-meta">
           <div class="photo-title">${escapeHtml(shortenFileName(item.name))}</div>
           <div class="photo-subtitle">Folder: ${escapeHtml(item.folder || "General")}</div>
         </div>
         <div class="photo-actions">
-          <select onchange="moveItem('bryantos_photos', ${item.id}, this.value)">
+          <select onchange="movePhoto('${escapeAttribute(item.docId)}', this.value)">
             ${buildFolderOptions(item.folder)}
           </select>
-          <button onclick="deletePhoto(${item.id})">Delete</button>
+          <button onclick="deletePhoto('${escapeAttribute(item.docId)}')">Delete</button>
         </div>
       </div>
     `;
@@ -1183,8 +1267,9 @@ document.addEventListener("DOMContentLoaded", function() {
       return;
     }
 
-    _db  = firebase.firestore();
-    _uid = user.uid;
+    _db       = firebase.firestore();
+    _storage  = firebase.storage();
+    _uid      = user.uid;
 
     // Pull latest data from Firestore into localStorage, then render
     await loadFromFirestore();
@@ -1193,7 +1278,7 @@ document.addEventListener("DOMContentLoaded", function() {
     updateFolderLabels();
     applyFolderColor();
     loadNotes();
-    renderPhotos();
+    await loadPhotos();
     renderMail();
     renderMoney();
     renderBills();
