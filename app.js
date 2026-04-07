@@ -1114,7 +1114,15 @@ function renderCodes() {
   list.innerHTML = "";
 
   items.forEach(item => {
-    const displayed = _decryptText(item.text, _vaultPin) || item.text;
+    const decrypted = _decryptText(item.text, _vaultPin);
+    let displayed;
+    if (decrypted) {
+      console.log("[Vault] Decrypted:", decrypted);
+      displayed = decrypted;
+    } else {
+      console.warn("[Vault] Decryption failed", item);
+      displayed = "Unable to decrypt";
+    }
     const li = document.createElement("li");
     li.className = "list-item";
     li.innerHTML = `
