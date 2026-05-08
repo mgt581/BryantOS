@@ -50,7 +50,9 @@ async function loadFromFirestore() {
     if (doc.exists) {
       const saved = doc.data();
       Object.entries(saved).forEach(([key, val]) => {
-        localStorage.setItem(key, typeof val === "string" ? val : JSON.stringify(val));
+        if (localStorage.getItem(key) === null) {
+          localStorage.setItem(key, typeof val === "string" ? val : JSON.stringify(val));
+        }
       });
     }
   } catch (err) {
@@ -65,6 +67,7 @@ function scheduleSyncToFirestore() {
 
 async function syncToFirestore() {
   if (!_db || !_uid) return;
+  console.log("Firestore sync started");
   try {
     const data = {};
     SYNC_KEYS.forEach(key => {
@@ -81,7 +84,8 @@ async function syncToFirestore() {
     await _db
       .collection("users").doc(_uid)
       .collection("data").doc("bryantos")
-      .set(data);
+      .set(data, { merge: true });
+    console.log("Firestore sync success");
     const banner = document.getElementById("syncError");
     if (banner) banner.hidden = true;
   } catch (err) {
@@ -1444,16 +1448,23 @@ document.addEventListener("DOMContentLoaded", function() {
 
   auth.onAuthStateChanged(async function(user) {
     if (!user) {
+      _db       = null;
+      _storage  = null;
+      _uid      = null;
       window.location.href = "signin.html";
       return;
     }
 
+    console.log("Auth signed in:", user.uid);
     _db       = firebase.firestore();
     _storage  = firebase.storage();
     _uid      = user.uid;
 
     // Pull latest data from Firestore into localStorage, then render
     await loadFromFirestore();
+    await loadPhotos();
+    refreshFolderState();
+    await syncToFirestore();
 
     // ── Vault state debug log ──────────────────────────────────────────────────
     const _sessRaw = sessionStorage.getItem("vault_sess");
@@ -1485,7 +1496,6 @@ document.addEventListener("DOMContentLoaded", function() {
     updateFolderLabels();
     applyFolderColor();
     loadNotes();
-    await loadPhotos();
     renderAlbumFilter();
     renderMail();
     renderMoney();
