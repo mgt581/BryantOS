@@ -260,6 +260,10 @@ ul {
   word-break: break-word;
 }
 
+.note-item span {
+  white-space: normal;
+}
+
 .list-item a {
   color: var(--accent);
   text-decoration: none;
