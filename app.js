@@ -36,6 +36,7 @@ const VAULT_PIN_SALT_KEY = "bryantos_vault_pin_salt";
 const VAULT_ENC_FLAG_KEY = "bryantos_vault_encrypted";
 const VAULT_WA_CRED_KEY  = "bryantos_vault_wa_cred";
 const VAULT_WA_PIN_KEY   = "bryantos_vault_wa_pin";
+const REMOTE_VAULT_PREFIX = "bryantos_remote_";
 
 // In-memory only — cleared on every page refresh (intentional security design).
 let _vaultPin = null;
@@ -50,11 +51,51 @@ async function loadFromFirestore() {
     if (doc.exists) {
       const saved = doc.data();
       Object.entries(saved).forEach(([key, val]) => {
-        localStorage.setItem(key, typeof val === "string" ? val : JSON.stringify(val));
+        mergeFirestoreValue(key, val);
       });
     }
   } catch (err) {
     console.error("Firestore load failed:", err);
+  }
+}
+
+function serializeStoredValue(value) {
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+function mergeFirestoreValue(key, value) {
+  const incoming = serializeStoredValue(value);
+  const existing = localStorage.getItem(key);
+
+  if (existing === null || existing === "") {
+    localStorage.setItem(key, incoming);
+    return;
+  }
+
+  if (key === VAULT_PIN_HASH_KEY || key === VAULT_PIN_SALT_KEY || key === VAULT_ENC_FLAG_KEY) {
+    if (existing !== incoming) {
+      localStorage.setItem(`${REMOTE_VAULT_PREFIX}${key}`, incoming);
+    }
+    return;
+  }
+
+  if (key === FOLDERS_KEY) {
+    const localFolders = getStoredData(FOLDERS_KEY, []);
+    let remoteFolders = [];
+    try { remoteFolders = JSON.parse(incoming) || []; } catch {}
+    if (Array.isArray(localFolders) && Array.isArray(remoteFolders)) {
+      localStorage.setItem(FOLDERS_KEY, JSON.stringify(Array.from(new Set([...remoteFolders, ...localFolders]))));
+    }
+    return;
+  }
+
+  if (key.startsWith("bryantos_notes_")) {
+    localStorage.setItem(key, JSON.stringify(mergeNoteLists(existing, incoming, key)));
+    return;
+  }
+
+  if (key === "bryantos_codes") {
+    localStorage.setItem(key, JSON.stringify(mergeItemLists(existing, incoming)));
   }
 }
 
@@ -65,6 +106,7 @@ function scheduleSyncToFirestore() {
 
 async function syncToFirestore() {
   if (!_db || !_uid) return;
+  console.log("Firestore sync started");
   try {
     const data = {};
     SYNC_KEYS.forEach(key => {
@@ -81,7 +123,8 @@ async function syncToFirestore() {
     await _db
       .collection("users").doc(_uid)
       .collection("data").doc("bryantos")
-      .set(data);
+      .set(data, { merge: true });
+    console.log("Firestore sync success");
     const banner = document.getElementById("syncError");
     if (banner) banner.hidden = true;
   } catch (err) {
@@ -326,6 +369,67 @@ function getNotesKey(folderName) {
   return `bryantos_notes_${folderName}`;
 }
 
+function parseStoredNotes(raw, folderName) {
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter(item => item && typeof item.text === "string" && item.text.trim() !== "")
+        .map(item => ({
+          id: item.id || Date.now() + Math.floor(Math.random() * 100000),
+          folder: item.folder || folderName,
+          text: item.text,
+          createdAt: item.createdAt || null
+        }));
+    }
+  } catch {
+    // Legacy notes were stored as plain text under the same folder key.
+  }
+
+  const text = String(raw).trim();
+  if (!text) return [];
+
+  return [{
+    id: Date.now(),
+    folder: folderName,
+    text,
+    createdAt: null
+  }];
+}
+
+function mergeNoteLists(localRaw, remoteRaw, key) {
+  const folderName = key.replace("bryantos_notes_", "");
+  const merged = new Map();
+
+  [...parseStoredNotes(remoteRaw, folderName), ...parseStoredNotes(localRaw, folderName)]
+    .forEach(item => {
+      merged.set(String(item.id), item);
+    });
+
+  return Array.from(merged.values()).sort((a, b) => Number(b.id) - Number(a.id));
+}
+
+function mergeItemLists(localRaw, remoteRaw) {
+  let localItems = [];
+  let remoteItems = [];
+
+  try { localItems = JSON.parse(localRaw) || []; } catch {}
+  try { remoteItems = JSON.parse(remoteRaw) || []; } catch {}
+
+  if (!Array.isArray(localItems) || !Array.isArray(remoteItems)) {
+    return Array.isArray(localItems) ? localItems : remoteItems;
+  }
+
+  const merged = new Map();
+  [...remoteItems, ...localItems].forEach(item => {
+    if (item && item.id !== undefined) merged.set(String(item.id), item);
+  });
+
+  return Array.from(merged.values()).sort((a, b) => Number(b.id) - Number(a.id));
+}
+
 function getFilteredItems(key) {
   const currentFolder = getCurrentFolder();
   return getStoredData(key, []).filter(item => item.folder === currentFolder);
@@ -368,17 +472,60 @@ function saveNotes() {
   if (!notesInput) return;
 
   const value = notesInput.value.trim();
+  if (!value) return;
+
   const currentFolder = getCurrentFolder();
-  localStorage.setItem(getNotesKey(currentFolder), value);
+  const key = getNotesKey(currentFolder);
+  const notes = parseStoredNotes(localStorage.getItem(key), currentFolder);
+  notes.unshift({
+    id: Date.now(),
+    folder: currentFolder,
+    text: value,
+    createdAt: new Date().toISOString()
+  });
+  localStorage.setItem(key, JSON.stringify(notes));
+  notesInput.value = "";
   scheduleSyncToFirestore();
-  alert(`Notes saved in ${currentFolder}.`);
+  loadNotes();
+}
+
+function deleteNote(id) {
+  const currentFolder = getCurrentFolder();
+  const key = getNotesKey(currentFolder);
+  const notes = parseStoredNotes(localStorage.getItem(key), currentFolder)
+    .filter(item => String(item.id) !== String(id));
+
+  localStorage.setItem(key, JSON.stringify(notes));
+  scheduleSyncToFirestore();
+  loadNotes();
 }
 
 function loadNotes() {
   const currentFolder = getCurrentFolder();
-  const savedNotes = localStorage.getItem(getNotesKey(currentFolder)) || "";
+  const key = getNotesKey(currentFolder);
+  const notes = parseStoredNotes(localStorage.getItem(key), currentFolder);
   const notesInput = document.getElementById("notesInput");
-  if (notesInput) notesInput.value = savedNotes;
+  const notesList = document.getElementById("notesList");
+
+  if (notesInput) notesInput.value = "";
+  if (!notesList) return;
+
+  notesList.innerHTML = "";
+  notes.forEach(item => {
+    const li = document.createElement("li");
+    li.className = "list-item note-item";
+    li.innerHTML = `
+      <span>${escapeHtml(item.text).replaceAll("\n", "<br>")}</span>
+      <div class="list-actions">
+        <button onclick="deleteNote('${escapeAttribute(String(item.id))}')">Delete</button>
+      </div>
+    `;
+    notesList.appendChild(li);
+  });
+
+  if (notes.length > 0) {
+    localStorage.setItem(key, JSON.stringify(notes));
+  }
 }
 
 /* Photo Albums */
@@ -916,7 +1063,11 @@ function _vaultGetSalt() {
 }
 
 function _vaultHashPin(pin) {
-  return CryptoJS.PBKDF2(String(pin), _vaultGetSalt(), {
+  return _vaultHashPinWithSalt(pin, _vaultGetSalt());
+}
+
+function _vaultHashPinWithSalt(pin, salt) {
+  return CryptoJS.PBKDF2(String(pin), salt, {
     keySize: 8, iterations: 600000
   }).toString();
 }
@@ -1024,6 +1175,22 @@ function vaultUnlock(pin) {
     sessionStorage.setItem("vault_sess", _vaultEncodeSession(pin));
     return true;
   }
+
+  const remoteHash = localStorage.getItem(`${REMOTE_VAULT_PREFIX}${VAULT_PIN_HASH_KEY}`);
+  const remoteSalt = localStorage.getItem(`${REMOTE_VAULT_PREFIX}${VAULT_PIN_SALT_KEY}`);
+  if (remoteHash && remoteSalt && _vaultHashPinWithSalt(pin, remoteSalt) === remoteHash) {
+    localStorage.setItem(VAULT_PIN_HASH_KEY, remoteHash);
+    localStorage.setItem(VAULT_PIN_SALT_KEY, remoteSalt);
+    const remoteFlag = localStorage.getItem(`${REMOTE_VAULT_PREFIX}${VAULT_ENC_FLAG_KEY}`);
+    if (remoteFlag !== null) {
+      localStorage.setItem(VAULT_ENC_FLAG_KEY, remoteFlag);
+    }
+    _vaultPin = pin;
+    sessionStorage.setItem("vault_sess", _vaultEncodeSession(pin));
+    scheduleSyncToFirestore();
+    return true;
+  }
+
   return false;
 }
 
@@ -1444,16 +1611,23 @@ document.addEventListener("DOMContentLoaded", function() {
 
   auth.onAuthStateChanged(async function(user) {
     if (!user) {
+      _db       = null;
+      _storage  = null;
+      _uid      = null;
       window.location.href = "signin.html";
       return;
     }
 
+    console.log("Auth signed in:", user.uid);
     _db       = firebase.firestore();
     _storage  = firebase.storage();
     _uid      = user.uid;
 
     // Pull latest data from Firestore into localStorage, then render
     await loadFromFirestore();
+    await loadPhotos();
+    refreshFolderState();
+    await syncToFirestore();
 
     // ── Vault state debug log ──────────────────────────────────────────────────
     const _sessRaw = sessionStorage.getItem("vault_sess");
@@ -1485,7 +1659,6 @@ document.addEventListener("DOMContentLoaded", function() {
     updateFolderLabels();
     applyFolderColor();
     loadNotes();
-    await loadPhotos();
     renderAlbumFilter();
     renderMail();
     renderMoney();
