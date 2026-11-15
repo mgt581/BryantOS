@@ -1,339 +1,132 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-GB">
 <head>
   <meta charset="UTF-8">
-  <title>BryantOS</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#0b1120">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="BryantOS">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <link rel="stylesheet" href="styles.css">
+  <meta name="apple-mobile-web-app-title" content="BryantOS">
+  <meta name="robots" content="noindex, nofollow">
+  <title>BryantOS</title>
+  <link rel="stylesheet" href="styles.css?v=2">
   <link rel="icon" href="logo.png" type="image/png">
   <link rel="apple-touch-icon" sizes="512x512" href="logo.png">
   <link rel="manifest" href="manifest.webmanifest">
-  
-  <!-- Firebase SDK -->
+
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
-
-  <!-- CryptoJS for vault AES-256 encryption -->
+  <!-- Only used once, to upgrade items saved by the old PIN Vault -->
   <script src="crypto-js.min.js"></script>
-  
-  <style>
-    .signin-btn {
-      background-color: #4285F4;
-      color: white;
-      border: none;
-      padding: 8px 16px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-      margin-right: 10px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    
-    .signin-btn:hover {
-      background-color: #357ae8;
-    }
-    
-    .user-info {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-right: 15px;
-      color: #555;
-    }
-    
-    .user-avatar {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-    }
-    
-    .auth-container {
-      display: flex;
-      align-items: center;
-    }
-  </style>
+  <script src="vault.js?v=2"></script>
 </head>
 <body>
+  <div class="app" id="app" hidden>
 
-  <header class="header">
-    <h1>BryantOS</h1>
-    <p class="tagline">The tasks you avoid often hold the most value.</p>
-    
-    <div class="auth-container">
-      <div id="userInfo" class="user-info" hidden>
-        <img id="userAvatar" class="user-avatar" src="" alt="User avatar">
-        <span id="userName"></span>
+    <!-- Side menu (computer) -->
+    <nav class="sidebar" aria-label="Main">
+      <div class="brand">
+        <img src="logo.png" alt="" class="brand-logo">
+        <div class="brand-text">
+          <span class="brand-name">BryantOS</span>
+          <span class="brand-sub">Your private stuff</span>
+        </div>
       </div>
-      
-      <button id="googleSignInBtn" class="signin-btn" type="button" hidden>
-        <svg width="18" height="18" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
-          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
-          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
-          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
-        </svg>
-        Sign In with Google
-      </button>
-      
-      <button id="signOutBtn" class="signout-btn" type="button" hidden>Sign Out</button>
-    </div>
-  </header>
 
-  <div id="syncError" class="sync-error" hidden>
-    ⚠️ Cloud sync failed — your changes are saved locally but not backed up.
-  </div>
+      <div class="nav-group">
+        <button type="button" class="nav-btn" data-act="go" data-sec="home">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home
+        </button>
+        <button type="button" class="nav-btn" data-act="go" data-sec="notes">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 13h8M8 17h5"/></svg>Notes
+        </button>
+        <button type="button" class="nav-btn" data-act="go" data-sec="photos">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-9 8"/></svg>Photos &amp; docs
+        </button>
+        <button type="button" class="nav-btn" data-act="go" data-sec="links">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>Links
+        </button>
+        <button type="button" class="nav-btn" data-act="go" data-sec="vault">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Vault
+          <span class="nav-tag" data-vault-tag>Locked</span>
+        </button>
+      </div>
 
-  <div class="search-bar">
-    <div class="search-input-wrap">
-      <input
-        id="globalSearch"
-        type="text"
-        placeholder="Search everything..."
-        oninput="runSearch()"
-        onkeydown="if(event.key==='Enter') runSearch()"
-      >
-      <button class="search-btn" type="button" onclick="runSearch()" aria-label="Search">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="11" cy="11" r="8"></circle>
-          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-        </svg>
-      </button>
-    </div>
-  </div>
+      <div class="nav-group">
+        <span class="nav-label">More</span>
+        <button type="button" class="nav-btn" data-act="go" data-sec="more">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>Money, bills &amp; dates
+        </button>
+        <button type="button" class="nav-btn" data-act="go" data-sec="settings">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>Settings &amp; folders
+        </button>
+      </div>
 
-  <nav class="nav">
-    <button type="button" onclick="showSection('dashboard')">Dashboard</button>
-    <button type="button" onclick="showSection('notes')">Notes</button>
-    <button type="button" onclick="showSection('photos')">Photos</button>
-    <button type="button" onclick="showSection('mail')">Inbox Vault</button>
-    <button type="button" onclick="showSection('money')">Money</button>
-    <button type="button" onclick="showSection('bills')">Bills</button>
-    <button type="button" onclick="showSection('links')">Links</button>
-    <button type="button" onclick="showSection('codes')">Vault</button>
-    <button type="button" onclick="showSection('calendar')">Calendar</button>
-    <button type="button" onclick="showSection('settings')">Settings</button>
-  </nav>
+      <div class="user-card">
+        <img class="user-avatar" data-user-photo alt="" hidden>
+        <div class="user-initial" data-user-initial>?</div>
+        <div class="user-text">
+          <span class="user-name" data-user-name></span>
+          <span class="user-sub">Signed in with Google</span>
+        </div>
+      </div>
+    </nav>
 
-  <!-- Folder management bar (shared across all sections) -->
-  <div class="folder-panel" style="max-width:1000px;margin:18px auto 0;padding:0 16px;">
-    <div style="background:rgba(23,32,51,0.9);border:1px solid rgba(255,255,255,0.08);border-radius:18px;padding:18px;">
-      <div class="folder-toolbar">
-        <div class="folder-select-wrap">
-          <label>Current Folder</label>
-          <div class="inline-row">
-            <select id="folderSelect" onchange="changeFolder()"></select>
-            <button type="button" class="danger-btn" onclick="deleteCurrentFolder()">Delete</button>
+    <!-- Main area -->
+    <div class="main-wrap">
+      <!-- Phone header -->
+      <header class="phone-header">
+        <img src="logo.png" alt="" class="brand-logo">
+        <span class="brand-name">BryantOS</span>
+        <button type="button" class="icon-btn" data-act="go" data-sec="more" aria-label="Money, bills and dates">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
+        </button>
+        <button type="button" class="icon-btn" data-act="go" data-sec="settings" aria-label="Settings and folders">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
+        </button>
+      </header>
+
+      <main class="main" id="main">
+        <div class="topbar">
+          <div class="search">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            <label class="sr" for="search">Search everything</label>
+            <input id="search" type="search" placeholder="Search notes, links, photos…" autocomplete="off">
           </div>
-        </div>
-        <div class="folder-add-wrap">
-          <label>New Folder</label>
-          <div class="inline-row">
-            <input type="text" id="newFolderInput" placeholder="Folder name…">
-            <button type="button" onclick="addFolder()">Add</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <main class="main-content">
-    <div id="dashboard" class="section active">
-      <h2>Dashboard</h2>
-      <p>Welcome to BryantOS. Select a section above to get started.</p>
-    </div>
-
-    <div id="notes" class="section">
-      <h2>Notes</h2>
-      <p class="section-folder-label">Folder: <span id="notesFolderLabel"></span></p>
-      <textarea id="notesInput" placeholder="Write your notes here…"></textarea>
-      <button type="button" onclick="saveNotes()">Add Note</button>
-      <ul id="notesList"></ul>
-    </div>
-
-    <div id="photos" class="section">
-      <h2>Photos</h2>
-      <p class="section-folder-label">Folder: <span id="photosFolderLabel"></span></p>
-      <div class="inline-row" style="margin-bottom:8px;">
-        <input type="text" id="newAlbumInput" placeholder="New album name…">
-        <button type="button" onclick="createAlbum()">Create Album</button>
-      </div>
-      <div class="inline-row" style="margin-bottom:8px;">
-        <label for="albumFilter" style="white-space:nowrap;">Album:</label>
-        <select id="albumFilter" onchange="renderPhotos()">
-          <option value="">All Photos</option>
-        </select>
-      </div>
-      <input type="file" id="photoInput" accept="image/*" onchange="addPhoto(event)">
-      <ul id="photoList"></ul>
-    </div>
-
-    <div id="mail" class="section">
-      <h2>Inbox Vault</h2>
-      <p class="section-folder-label">Folder: <span id="mailFolderLabel"></span></p>
-      <div class="inline-row">
-        <input type="text" id="mailInput" placeholder="Add a message or email…">
-        <button type="button" onclick="addMail()">Add</button>
-      </div>
-      <ul id="mailList"></ul>
-    </div>
-
-    <div id="money" class="section">
-      <h2>Money</h2>
-      <p class="section-folder-label">Folder: <span id="moneyFolderLabel"></span></p>
-      <div class="inline-row">
-        <input type="text" id="moneyDesc" placeholder="Description…">
-        <input type="text" id="moneyAmount" placeholder="+100 or -50">
-        <button type="button" onclick="addMoney()">Add</button>
-      </div>
-      <ul id="moneyList"></ul>
-    </div>
-
-    <div id="bills" class="section">
-      <h2>Bills</h2>
-      <p class="section-folder-label">Folder: <span id="billsFolderLabel"></span></p>
-      <div class="inline-row">
-        <input type="text" id="billInput" placeholder="Bill name or description…">
-        <button type="button" onclick="addBill()">Add</button>
-      </div>
-      <ul id="billList"></ul>
-    </div>
-
-    <div id="links" class="section">
-      <h2>Links</h2>
-      <p class="section-folder-label">Folder: <span id="linksFolderLabel"></span></p>
-      <div class="inline-row">
-        <input type="text" id="linkInput" placeholder="https://… or email@example.com">
-        <button type="button" onclick="addLink()">Add</button>
-      </div>
-      <ul id="linkList"></ul>
-    </div>
-
-    <div id="codes" class="section">
-      <!-- Lock overlay -->
-      <div id="vaultLock" class="vault-lock">
-        <div class="vault-lock-box">
-          <div class="vault-lock-icon">🔒</div>
-          <h3 id="vaultLockTitle">Vault Locked</h3>
-          <p id="vaultLockSubtitle">Enter your PIN to unlock.</p>
-          <input id="vaultPinInput" type="password" inputmode="numeric" maxlength="20"
-                 class="vault-pin-input" placeholder="PIN"
-                 onkeydown="if(event.key==='Enter') vaultSubmitPin()">
-          <input id="vaultPinConfirm" type="password" inputmode="numeric" maxlength="20"
-                 class="vault-pin-input" placeholder="Confirm PIN" hidden
-                 onkeydown="if(event.key==='Enter') vaultSubmitPin()">
-          <p id="vaultPinError" class="vault-pin-error"></p>
-          <div class="vault-lock-actions">
-            <button type="button" class="vault-unlock-btn" onclick="vaultSubmitPin()">Unlock</button>
-            <button type="button" id="vaultBioBtn" class="vault-bio-btn"
-                    onclick="vaultBiometricAuth()" hidden>🪪 Use Biometrics</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Vault content (hidden until unlocked) -->
-      <div id="vaultContent" hidden>
-        <div class="vault-header">
-          <h2>Vault</h2>
-          <div class="vault-status-unlocked">🔓 Vault Unlocked</div>
-          <button type="button" class="vault-lock-btn" onclick="vaultLock()">🔒 Lock</button>
-        </div>
-        <p class="section-folder-label">Folder: <span id="codesFolderLabel"></span></p>
-        <div id="vaultBioRegWrap" hidden style="margin-bottom:12px;">
-          <button type="button" class="vault-bio-reg-btn" onclick="vaultRegisterBiometric()">
-            🪪 Enable Biometrics for this device
+          <button type="button" class="btn btn-primary" data-act="new">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New
+          </button>
+          <button type="button" class="btn" data-act="vault-lock" data-lock-btn hidden>
+            <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Lock now
           </button>
         </div>
-        <div class="inline-row">
-          <input type="text" id="codeInput" placeholder="Password or code…">
-          <button type="button" onclick="addCode()">Add</button>
+
+        <div class="banner banner-error" id="syncError" role="alert" hidden>
+          Can't reach the cloud right now. Changes are kept on this device and will sync when you're back online.
         </div>
-        <ul id="codeList"></ul>
-      </div>
+
+        <div class="chips" id="chips" role="group" aria-label="Filter by folder"></div>
+
+        <section id="view" aria-live="polite"></section>
+      </main>
     </div>
 
-    <div id="calendar" class="section">
-      <h2>Calendar</h2>
-      <p class="section-folder-label">Folder: <span id="calendarFolderLabel"></span></p>
-      <div class="inline-row">
-        <input type="date" id="dateInput">
-        <input type="text" id="eventInput" placeholder="Event description…">
-        <button type="button" onclick="addEvent()">Add</button>
-      </div>
-      <ul id="eventList"></ul>
-    </div>
+    <!-- Bottom menu (phone) -->
+    <nav class="bottom-nav" aria-label="Main">
+      <button type="button" data-act="go" data-sec="home"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home</button>
+      <button type="button" data-act="go" data-sec="notes"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>Notes</button>
+      <button type="button" data-act="go" data-sec="photos"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-9 8"/></svg>Photos</button>
+      <button type="button" data-act="go" data-sec="links"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>Links</button>
+      <button type="button" data-act="go" data-sec="vault"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Vault</button>
+    </nav>
 
-    <div id="settings" class="section">
-      <h2>Settings</h2>
-      <h3>Contacts</h3>
-      <p class="section-folder-label">Folder: <span id="contactsFolderLabel"></span></p>
-      <div class="inline-row">
-        <input type="text" id="contactName" placeholder="Name…">
-        <input type="tel" id="contactNumber" placeholder="Phone number…">
-        <button type="button" onclick="addContact()">Add</button>
-      </div>
-      <ul id="contactList"></ul>
-    </div>
-  </main>
+    <div class="toast" id="toast" role="status" hidden></div>
+  </div>
 
-  <script>
-    const firebaseConfig = {
-      apiKey: "AIzaSyDq3rozlNMYVO_9sCAqfwmnzmk67x9wN7g",
-      authDomain: "bryant0s.firebaseapp.com",
-      projectId: "bryant0s",
-      storageBucket: "bryant0s.firebasestorage.app",
-      messagingSenderId: "1044948666675",
-      appId: "1:1044948666675:web:d5fbefd399d7c082a85646",
-      measurementId: "G-Z1CRR27XLS"
-    };
+  <div class="loading" id="loading">Loading BryantOS…</div>
 
-    // Initialize Firebase (app.js will reuse this instance)
-    firebase.initializeApp(firebaseConfig);
-
-    // DOM elements
-    const signInBtn = document.getElementById('googleSignInBtn');
-    const signOutBtn = document.getElementById('signOutBtn');
-    const userInfo = document.getElementById('userInfo');
-    const userAvatar = document.getElementById('userAvatar');
-    const userName = document.getElementById('userName');
-
-    // Auth state listener — updates header UI only
-    firebase.auth().onAuthStateChanged((user) => {
-      if (user) {
-        signInBtn.hidden = true;
-        signOutBtn.hidden = false;
-        userInfo.hidden = false;
-        userAvatar.src = user.photoURL || 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik0yMCAyMXYtMmE0IDQgMCAwIDAtNC00SDhhNCA0IDAgMCAwLTQgNHYyIj48L3BhdGg+PGNpcmNsZSBjeD0iMTIiIGN5PSI3IiByPSI0Ij48L2NpcmNsZT48L3N2Zz4=';
-        userName.textContent = user.displayName || user.email;
-      } else {
-        signInBtn.hidden = false;
-        signOutBtn.hidden = true;
-        userInfo.hidden = true;
-      }
-    });
-
-    // Google Sign-In
-    signInBtn.addEventListener('click', () => {
-      const provider = new firebase.auth.GoogleAuthProvider();
-      provider.addScope('email');
-      provider.addScope('profile');
-      firebase.auth().signInWithPopup(provider).catch((error) => {
-        alert('Sign-in failed: ' + error.message);
-      });
-    });
-
-    // Sign out
-    signOutBtn.addEventListener('click', () => {
-      firebase.auth().signOut();
-    });
-  </script>
-  <script src="app.js"></script>
+  <script src="app.js?v=2"></script>
 </body>
 </html>

@@ -1,1683 +1,1369 @@
-// ── Firebase references (populated after auth) ────────────────────────────────
-let _db       = null;
-let _storage  = null;
-let _uid      = null;
-let _saveTimer = null;
+/* BryantOS app */
+(function () {
+  "use strict";
 
-// In-memory cache of photos loaded from Firestore.
-let _firestorePhotos = [];
+  /* ── Setup ─────────────────────────────────────────────────────────── */
 
-// Delay (ms) before flushing localStorage changes to Firestore.
-// Short enough to feel instant; long enough to batch rapid edits into one write.
-const SYNC_DEBOUNCE_MS = 1500;
+  const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyDq3rozlNMYVO_9sCAqfwmnzmk67x9wN7g",
+    authDomain: "bryant0s.firebaseapp.com",
+    projectId: "bryant0s",
+    storageBucket: "bryant0s.firebasestorage.app",
+    messagingSenderId: "1044948666675",
+    appId: "1:1044948666675:web:d5fbefd399d7c082a85646"
+  };
 
-// Keys synced to Firestore. Photos are excluded — base64 data is too large.
-// Vault crypto keys (hash, salt, encrypted flag) are included so the same PIN
-// works across devices and double-encryption is avoided on fresh localStorage.
-const SYNC_KEYS = [
-  "bryantos_folders",
-  "bryantos_current_folder",
-  "bryantos_mail",
-  "bryantos_money",
-  "bryantos_bills",
-  "bryantos_links",
-  "bryantos_codes",
-  "bryantos_events",
-  "bryantos_contacts",
-  "bryantos_vault_pin_hash",
-  "bryantos_vault_pin_salt",
-  "bryantos_vault_encrypted",
-  "bryantos_photo_albums"
-];
+  // Demo mode: only on this computer (localhost), never on the live site.
+  const DEMO = ["localhost", "127.0.0.1"].includes(location.hostname) &&
+    new URLSearchParams(location.search).has("demo");
 
-// ── Vault encryption state ─────────────────────────────────────────────────────
-const VAULT_PIN_HASH_KEY = "bryantos_vault_pin_hash";
-const VAULT_PIN_SALT_KEY = "bryantos_vault_pin_salt";
-const VAULT_ENC_FLAG_KEY = "bryantos_vault_encrypted";
-const VAULT_WA_CRED_KEY  = "bryantos_vault_wa_cred";
-const VAULT_WA_PIN_KEY   = "bryantos_vault_wa_pin";
-const REMOTE_VAULT_PREFIX = "bryantos_remote_";
+  const AUTO_LOCK_MS = 5 * 60 * 1000;
+  const CLIPBOARD_CLEAR_MS = 30 * 1000;
 
-// In-memory only — cleared on every page refresh (intentional security design).
-let _vaultPin = null;
+  const K = {
+    folders: "bryantos_folders",
+    notes: "bryantos_notelist",
+    links: "bryantos_links",
+    mail: "bryantos_mail",
+    money: "bryantos_money",
+    bills: "bryantos_bills",
+    events: "bryantos_events",
+    contacts: "bryantos_contacts",
+    albums: "bryantos_photo_albums",
+    vault: "bryantos_vault2",
+    vaultItems: "bryantos_vault2_items",
+    oldCodes: "bryantos_codes",
+    oldHash: "bryantos_vault_pin_hash",
+    oldSalt: "bryantos_vault_pin_salt",
+    oldFlag: "bryantos_vault_encrypted"
+  };
+  const OLD_LOCAL_KEYS = [K.folders, K.links, K.mail, K.money, K.bills, K.events, K.contacts, K.albums, K.oldCodes, K.oldHash, K.oldSalt, K.oldFlag];
 
-async function loadFromFirestore() {
-  if (!_db || !_uid) return;
-  try {
-    const doc = await _db
-      .collection("users").doc(_uid)
-      .collection("data").doc("bryantos")
-      .get();
-    if (doc.exists) {
-      const saved = doc.data();
-      Object.entries(saved).forEach(([key, val]) => {
-        mergeFirestoreValue(key, val);
-      });
-    }
-  } catch (err) {
-    console.error("Firestore load failed:", err);
-  }
-}
+  const DEFAULT_FOLDERS = ["Personal", "Bryant Digital", "Cleaning", "Construction", "AI Photo Studio", "MultiPost"];
+  const FOLDER_COLORS = {
+    "Personal": "#22c55e", "Bryant Digital": "#3b82f6", "Cleaning": "#f97316",
+    "Construction": "#eab308", "AI Photo Studio": "#a855f7", "MultiPost": "#ec4899"
+  };
+  const EXTRA_COLORS = ["#14b8a6", "#f43f5e", "#84cc16", "#06b6d4", "#f59e0b", "#8b5cf6", "#ef4444", "#10b981"];
 
-function serializeStoredValue(value) {
-  return typeof value === "string" ? value : JSON.stringify(value);
-}
+  const VAULT_TYPES = ["Password", "API key", "PIN or code", "Recovery codes", "Card or account", "Other secret"];
 
-function mergeFirestoreValue(key, value) {
-  const incoming = serializeStoredValue(value);
-  const existing = localStorage.getItem(key);
+  const S = {
+    user: null,
+    data: {},
+    photos: [],
+    loaded: false,
+    section: "home",
+    folder: "All",
+    query: "",
+    album: "",
+    moreTab: "money",
+    noteEdit: null,
+    vaultKey: null,
+    vaultItems: [],
+    vaultForm: null,   // null | "new" | id
+    vaultPrefill: "",
+    shown: {},
+    copied: null,
+    lastActive: Date.now(),
+    busy: false
+  };
 
-  if (existing === null || existing === "") {
-    localStorage.setItem(key, incoming);
-    return;
-  }
+  let store = null;
 
-  if (key === VAULT_PIN_HASH_KEY || key === VAULT_PIN_SALT_KEY || key === VAULT_ENC_FLAG_KEY) {
-    if (existing !== incoming) {
-      localStorage.setItem(`${REMOTE_VAULT_PREFIX}${key}`, incoming);
-    }
-    return;
-  }
+  /* ── Helpers ───────────────────────────────────────────────────────── */
 
-  if (key === FOLDERS_KEY) {
-    const localFolders = getStoredData(FOLDERS_KEY, []);
-    let remoteFolders = [];
-    try { remoteFolders = JSON.parse(incoming) || []; } catch {}
-    if (Array.isArray(localFolders) && Array.isArray(remoteFolders)) {
-      localStorage.setItem(FOLDERS_KEY, JSON.stringify(Array.from(new Set([...remoteFolders, ...localFolders]))));
-    }
-    return;
+  const $ = (sel, root) => (root || document).querySelector(sel);
+  const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+
+  function h(v) {
+    return String(v == null ? "" : v)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
   }
 
-  if (key.startsWith("bryantos_notes_")) {
-    localStorage.setItem(key, JSON.stringify(mergeNoteLists(existing, incoming, key)));
-    return;
+  const newId = () => Date.now() * 1000 + Math.floor(Math.random() * 1000);
+  const list = (key) => (Array.isArray(S.data[key]) ? S.data[key] : []);
+  const folders = () => {
+    const f = S.data[K.folders];
+    return Array.isArray(f) && f.length ? f : DEFAULT_FOLDERS;
+  };
+  function folderColor(name) {
+    if (FOLDER_COLORS[name]) return FOLDER_COLORS[name];
+    const i = Math.max(0, folders().indexOf(name));
+    return EXTRA_COLORS[i % EXTRA_COLORS.length];
+  }
+  const dot = (f) => `<span class="dot" style="background:${h(folderColor(f))}"></span>`;
+  const folderTag = (f) => `<span class="folder-tag">${dot(f)}${h(f || "No folder")}</span>`;
+  const inFolder = (f) => S.folder === "All" || f === S.folder;
+  const targetFolder = () => (S.folder === "All" ? folders()[0] : S.folder);
+  const isUrl = (t) => /^https?:\/\/\S+$/i.test(String(t || "").trim());
+  const isEmail = (t) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(t || "").trim());
+
+  function folderOptions(selected) {
+    return folders().map((f) => `<option value="${h(f)}"${f === selected ? " selected" : ""}>${h(f)}</option>`).join("");
   }
 
-  if (key === "bryantos_codes") {
-    localStorage.setItem(key, JSON.stringify(mergeItemLists(existing, incoming)));
+  function timeAgo(ms) {
+    if (!ms) return "";
+    const d = (Date.now() - ms) / 1000;
+    if (d < 60) return "just now";
+    if (d < 3600) return Math.floor(d / 60) + " min ago";
+    if (d < 86400) return Math.floor(d / 3600) + " h ago";
+    if (d < 86400 * 7) return Math.floor(d / 86400) + " days ago";
+    return new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
   }
-}
+  const idTime = (id) => {
+    const n = Number(id);
+    if (!n) return 0;
+    return n > 1e15 ? Math.floor(n / 1000) : n; // new ids carry extra digits
+  };
+  const photoTime = (p) => (p.createdAt && p.createdAt.toMillis ? p.createdAt.toMillis() : (p.createdMs || 0));
 
-function scheduleSyncToFirestore() {
-  clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(syncToFirestore, SYNC_DEBOUNCE_MS);
-}
+  let toastTimer = null;
+  function toast(msg) {
+    const el = $("#toast");
+    el.textContent = msg;
+    el.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
+  }
 
-async function syncToFirestore() {
-  if (!_db || !_uid) return;
-  console.log("Firestore sync started");
-  try {
-    const data = {};
-    SYNC_KEYS.forEach(key => {
+  function setSyncError(on) {
+    const el = $("#syncError");
+    if (el) el.hidden = !on;
+  }
+
+  /* ── Saving ────────────────────────────────────────────────────────── */
+
+  function save(key, value) {
+    S.data[key] = value;
+    refresh();
+    return store.save({ [key]: value }).then(() => setSyncError(false)).catch((err) => {
+      console.error("Save failed", err);
+      setSyncError(true);
+    });
+  }
+
+  function saveMany(patch) {
+    Object.assign(S.data, patch);
+    refresh();
+    return store.save(patch).then(() => setSyncError(false)).catch((err) => {
+      console.error("Save failed", err);
+      setSyncError(true);
+    });
+  }
+
+  /* Firebase storage */
+  function firebaseStore(uid) {
+    const db = firebase.firestore();
+    const ref = db.collection("users").doc(uid).collection("data").doc("bryantos");
+    const photos = db.collection("users").doc(uid).collection("photos");
+    const storage = firebase.storage();
+    return {
+      subscribe(cb) {
+        ref.onSnapshot((snap) => { setSyncError(false); cb(snap.exists ? snap.data() : {}); }, (err) => { console.error(err); setSyncError(true); });
+      },
+      save(patch) { return ref.set(patch, { mergeFields: Object.keys(patch) }); },
+      remove(keys) {
+        const p = {};
+        keys.forEach((k) => { p[k] = firebase.firestore.FieldValue.delete(); });
+        return ref.set(p, { merge: true });
+      },
+      subscribePhotos(cb) {
+        photos.orderBy("createdAt", "desc").onSnapshot(
+          (snap) => cb(snap.docs.map((d) => ({ ...d.data(), docId: d.id }))),
+          (err) => { console.error(err); }
+        );
+      },
+      async uploadPhoto(blob, meta) {
+        const safe = meta.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const path = `users/${uid}/photos/${meta.folder}/${Date.now()}_${safe}`;
+        const r = storage.ref(path);
+        await r.put(blob, { contentType: blob.type });
+        const url = await r.getDownloadURL();
+        await photos.add({ ...meta, url, storagePath: path, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+      },
+      updatePhoto(id, patch) { return photos.doc(id).update(patch); },
+      async deletePhoto(p) {
+        if (p.storagePath) { try { await storage.ref(p.storagePath).delete(); } catch (e) { console.warn(e); } }
+        await photos.doc(p.docId).delete();
+      }
+    };
+  }
+
+  /* Demo storage (this computer only, for testing the layout) */
+  function demoStore() {
+    const read = () => { try { return JSON.parse(localStorage.getItem("bryantos_demo") || "{}"); } catch (e) { return {}; } };
+    const write = (d) => localStorage.setItem("bryantos_demo", JSON.stringify(d));
+    let photoCb = () => {};
+    let photos = [];
+    return {
+      subscribe(cb) { cb(read()); },
+      save(patch) { write({ ...read(), ...JSON.parse(JSON.stringify(patch)) }); return Promise.resolve(); },
+      remove(keys) { const d = read(); keys.forEach((k) => delete d[k]); write(d); return Promise.resolve(); },
+      subscribePhotos(cb) { photoCb = cb; cb(photos); },
+      uploadPhoto(blob, meta) {
+        photos = [{ ...meta, url: URL.createObjectURL(blob), docId: String(newId()), createdMs: Date.now() }, ...photos];
+        photoCb(photos);
+        return Promise.resolve();
+      },
+      updatePhoto(id, patch) { photos = photos.map((p) => (p.docId === id ? { ...p, ...patch } : p)); photoCb(photos); return Promise.resolve(); },
+      deletePhoto(p) { photos = photos.filter((x) => x.docId !== p.docId); photoCb(photos); return Promise.resolve(); }
+    };
+  }
+
+  /* ── First load: bring old data along ──────────────────────────────── */
+
+  let migrated = false;
+  function migrateOnce() {
+    if (migrated) return;
+    migrated = true;
+    const patch = {};
+
+    // 1. Anything the old version only kept on this device.
+    const oldVaultKeys = [K.oldCodes, K.oldHash, K.oldSalt, K.oldFlag];
+    if (S.data[K.vault]) oldVaultKeys.forEach((k) => localStorage.removeItem(k));
+    OLD_LOCAL_KEYS.forEach((key) => {
+      if (S.data[key] !== undefined) return;
+      if (S.data[K.vault] && oldVaultKeys.includes(key)) return;
       const raw = localStorage.getItem(key);
-      if (raw !== null) {
-        try { data[key] = JSON.parse(raw); } catch { data[key] = raw; }
+      if (raw === null || raw === "") return;
+      try { patch[key] = JSON.parse(raw); } catch (e) { patch[key] = raw; }
+    });
+    const merged = { ...S.data, ...patch };
+
+    // 2. Old notes were split into one list per folder. Combine them once.
+    if (!Array.isArray(merged[K.notes])) {
+      const byId = new Map();
+      const sources = {};
+      Object.keys(merged).forEach((k) => { if (k.startsWith("bryantos_notes_")) sources[k] = merged[k]; });
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("bryantos_notes_") && sources[k] === undefined) sources[k] = localStorage.getItem(k);
       }
-    });
-    getFolders().forEach(folder => {
-      const key = getNotesKey(folder);
-      const val = localStorage.getItem(key);
-      if (val !== null) data[key] = val;
-    });
-    await _db
-      .collection("users").doc(_uid)
-      .collection("data").doc("bryantos")
-      .set(data, { merge: true });
-    console.log("Firestore sync success");
-    const banner = document.getElementById("syncError");
-    if (banner) banner.hidden = true;
-  } catch (err) {
-    console.error("Firestore sync failed:", err);
-    const banner = document.getElementById("syncError");
-    if (banner) banner.hidden = false;
-  }
-}
+      Object.keys(sources).forEach((k) => {
+        const folder = k.slice("bryantos_notes_".length);
+        parseOldNotes(sources[k], folder).forEach((n) => byId.set(String(n.id), n));
+      });
+      if (byId.size) {
+        patch[K.notes] = Array.from(byId.values()).sort((a, b) => idTime(b.id) - idTime(a.id));
+      }
+    }
 
-function signOut() {
-  firebase.auth().signOut().then(function() {
-    window.location.href = "signin.html";
-  });
-}
-
-// ── App data ──────────────────────────────────────────────────────────────────
-const DEFAULT_FOLDERS = [
-  "Personal",
-  "Bryant Digital",
-  "Cleaning",
-  "Construction",
-  "AI Photo Studio",
-  "MultiPost"
-];
-
-const FOLDERS_KEY = "bryantos_folders";
-const CURRENT_FOLDER_KEY = "bryantos_current_folder";
-
-const FOLDER_COLORS = {
-  "Personal": "#22c55e",
-  "Bryant Digital": "#3b82f6",
-  "Cleaning": "#f97316",
-  "Construction": "#eab308",
-  "AI Photo Studio": "#a855f7",
-  "MultiPost": "#ec4899"
-};
-
-function showSection(sectionId) {
-  const sections = document.querySelectorAll(".section");
-  sections.forEach(section => section.classList.remove("active"));
-
-  const selectedSection = document.getElementById(sectionId);
-  if (!selectedSection) {
-    console.error("Section not found:", sectionId);
-    const dashboard = document.getElementById("dashboard");
-    if (dashboard) dashboard.classList.add("active");
-    return;
+    if (Object.keys(patch).length) saveMany(patch);
   }
 
-  selectedSection.classList.add("active");
+  function parseOldNotes(raw, folder) {
+    if (!raw) return [];
+    let parsed = raw;
+    if (typeof raw === "string") {
+      try { parsed = JSON.parse(raw); } catch (e) { parsed = null; }
+      if (!Array.isArray(parsed)) {
+        const t = String(raw).trim();
+        return t ? [{ id: newId(), folder, text: t, createdAt: null }] : [];
+      }
+    }
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((n) => n && typeof n.text === "string" && n.text.trim())
+      .map((n) => ({ id: n.id || newId(), folder: n.folder || folder, text: n.text, createdAt: n.createdAt || null }));
+  }
 
-  if (sectionId === "codes") {
-    if (vaultIsUnlocked()) {
-      _showVaultContentUI();
+  /* ── Rendering ─────────────────────────────────────────────────────── */
+
+  // Whole section (forms + lists). Only called when the section changes, so
+  // typing is never lost when new data arrives.
+  function renderSection() {
+    const view = $("#view");
+    if (S.query) {
+      view.innerHTML = `<div class="view"><div class="view-head"><h1>Search</h1></div><div data-list="search"></div></div>`;
     } else {
-      _showVaultLockUI();
+      view.innerHTML = (SECTIONS[S.section] || SECTIONS.home)();
     }
+    $$(".nav-btn, .bottom-nav button").forEach((b) => b.classList.toggle("active", !S.query && b.dataset.sec === S.section));
+    refresh();
   }
 
-  runSearch();
-}
-
-function getStoredData(key, fallback = []) {
-  try {
-    const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : fallback;
-  } catch (error) {
-    console.error("Error reading", key, error);
-    return fallback;
-  }
-}
-
-function setStoredData(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-    scheduleSyncToFirestore();
-    return true;
-  } catch (error) {
-    console.error("Error saving", key, error);
-    return false;
-  }
-}
-
-function getFolders() {
-  const stored = getStoredData(FOLDERS_KEY, []);
-  if (!Array.isArray(stored) || stored.length === 0) {
-    setStoredData(FOLDERS_KEY, DEFAULT_FOLDERS);
-    return [...DEFAULT_FOLDERS];
-  }
-  return stored;
-}
-
-function getCurrentFolder() {
-  const current = localStorage.getItem(CURRENT_FOLDER_KEY);
-  const folders = getFolders();
-
-  if (current && folders.includes(current)) {
-    return current;
-  }
-
-  const fallback = folders[0];
-  localStorage.setItem(CURRENT_FOLDER_KEY, fallback);
-  return fallback;
-}
-
-function setCurrentFolder(folderName) {
-  localStorage.setItem(CURRENT_FOLDER_KEY, folderName);
-  scheduleSyncToFirestore();
-}
-
-function renderFolderDropdown() {
-  const select = document.getElementById("folderSelect");
-  if (!select) return;
-
-  const folders = getFolders();
-  const currentFolder = getCurrentFolder();
-
-  select.innerHTML = folders
-    .map(folder => `<option value="${escapeAttribute(folder)}">${escapeHtml(folder)}</option>`)
-    .join("");
-
-  select.value = currentFolder;
-}
-
-function updateFolderLabels() {
-  const currentFolder = getCurrentFolder();
-  const labelIds = [
-    "notesFolderLabel",
-    "photosFolderLabel",
-    "mailFolderLabel",
-    "moneyFolderLabel",
-    "billsFolderLabel",
-    "linksFolderLabel",
-    "codesFolderLabel",
-    "calendarFolderLabel",
-    "contactsFolderLabel"
-  ];
-
-  labelIds.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = currentFolder;
-  });
-}
-
-function applyFolderColor() {
-  const folder = getCurrentFolder();
-  const color = FOLDER_COLORS[folder] || "#38bdf8";
-  document.documentElement.style.setProperty("--accent", color);
-}
-
-function addFolder() {
-  const input = document.getElementById("newFolderInput");
-  if (!input) return;
-
-  const name = input.value.trim();
-  if (!name) {
-    alert("Enter a folder name.");
-    return;
-  }
-
-  const folders = getFolders();
-  const exists = folders.some(folder => folder.toLowerCase() === name.toLowerCase());
-
-  if (exists) {
-    alert("Folder already exists.");
-    return;
-  }
-
-  folders.push(name);
-  setStoredData(FOLDERS_KEY, folders);
-  setCurrentFolder(name);
-  input.value = "";
-  refreshFolderState();
-}
-
-function changeFolder() {
-  const select = document.getElementById("folderSelect");
-  if (!select) return;
-
-  setCurrentFolder(select.value);
-  refreshFolderState();
-}
-
-function deleteCurrentFolder() {
-  const currentFolder = getCurrentFolder();
-  const folders = getFolders();
-
-  if (DEFAULT_FOLDERS.includes(currentFolder)) {
-    alert("Default folders cannot be deleted.");
-    return;
-  }
-
-  const confirmed = confirm(`Delete folder "${currentFolder}"? Items in this folder will also be removed.`);
-  if (!confirmed) return;
-
-  const updatedFolders = folders.filter(folder => folder !== currentFolder);
-  setStoredData(FOLDERS_KEY, updatedFolders);
-
-  deleteItemsForFolder("bryantos_mail", currentFolder);
-  deleteItemsForFolder("bryantos_money", currentFolder);
-  deleteItemsForFolder("bryantos_bills", currentFolder);
-  deleteItemsForFolder("bryantos_links", currentFolder);
-  deleteItemsForFolder("bryantos_codes", currentFolder);
-  deleteItemsForFolder("bryantos_events", currentFolder);
-  deleteItemsForFolder("bryantos_contacts", currentFolder);
-  deleteItemsForFolder("bryantos_photos", currentFolder);
-
-  const allAlbums = getPhotoAlbums();
-  delete allAlbums[currentFolder];
-  setPhotoAlbums(allAlbums);
-
-  localStorage.removeItem(getNotesKey(currentFolder));
-
-  const nextFolder = updatedFolders[0] || DEFAULT_FOLDERS[0];
-  setCurrentFolder(nextFolder);
-  refreshFolderState();
-}
-
-function deleteItemsForFolder(storageKey, folderName) {
-  const items = getStoredData(storageKey, []).filter(item => item.folder !== folderName);
-  setStoredData(storageKey, items);
-}
-
-function refreshFolderState() {
-  renderFolderDropdown();
-  updateFolderLabels();
-  applyFolderColor();
-  loadNotes();
-  renderAlbumFilter("");
-  renderPhotos();
-  renderMail();
-  renderMoney();
-  renderBills();
-  renderLinks();
-  renderCodes();
-  renderEvents();
-  renderContacts();
-  runSearch();
-}
-
-function getNotesKey(folderName) {
-  return `bryantos_notes_${folderName}`;
-}
-
-function parseStoredNotes(raw, folderName) {
-  if (!raw) return [];
-
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return parsed
-        .filter(item => item && typeof item.text === "string" && item.text.trim() !== "")
-        .map(item => ({
-          id: item.id || Date.now() + Math.floor(Math.random() * 100000),
-          folder: item.folder || folderName,
-          text: item.text,
-          createdAt: item.createdAt || null
-        }));
-    }
-  } catch {
-    // Legacy notes were stored as plain text under the same folder key.
-  }
-
-  const text = String(raw).trim();
-  if (!text) return [];
-
-  return [{
-    id: Date.now(),
-    folder: folderName,
-    text,
-    createdAt: null
-  }];
-}
-
-function mergeNoteLists(localRaw, remoteRaw, key) {
-  const folderName = key.replace("bryantos_notes_", "");
-  const merged = new Map();
-
-  [...parseStoredNotes(remoteRaw, folderName), ...parseStoredNotes(localRaw, folderName)]
-    .forEach(item => {
-      merged.set(String(item.id), item);
+  // Lists, chips and labels. Safe to call any time.
+  function refresh() {
+    if (!S.loaded) return;
+    renderChips();
+    $$("[data-list]").forEach((el) => {
+      const fn = LISTS[el.dataset.list];
+      if (fn) el.innerHTML = fn();
     });
-
-  return Array.from(merged.values()).sort((a, b) => Number(b.id) - Number(a.id));
-}
-
-function mergeItemLists(localRaw, remoteRaw) {
-  let localItems = [];
-  let remoteItems = [];
-
-  try { localItems = JSON.parse(localRaw) || []; } catch {}
-  try { remoteItems = JSON.parse(remoteRaw) || []; } catch {}
-
-  if (!Array.isArray(localItems) || !Array.isArray(remoteItems)) {
-    return Array.isArray(localItems) ? localItems : remoteItems;
+    $$("[data-vault-tag]").forEach((el) => {
+      el.textContent = S.vaultKey ? "Open" : "Locked";
+      el.classList.toggle("open", !!S.vaultKey);
+    });
+    const lockBtn = $("[data-lock-btn]");
+    if (lockBtn) lockBtn.hidden = !S.vaultKey || (S.section === "vault" && !S.query);
   }
 
-  const merged = new Map();
-  [...remoteItems, ...localItems].forEach(item => {
-    if (item && item.id !== undefined) merged.set(String(item.id), item);
-  });
-
-  return Array.from(merged.values()).sort((a, b) => Number(b.id) - Number(a.id));
-}
-
-function getFilteredItems(key) {
-  const currentFolder = getCurrentFolder();
-  return getStoredData(key, []).filter(item => item.folder === currentFolder);
-}
-
-function buildFolderOptions(selectedFolder) {
-  return getFolders()
-    .map(folder => {
-      const selected = folder === selectedFolder ? "selected" : "";
-      return `<option value="${escapeAttribute(folder)}" ${selected}>${escapeHtml(folder)}</option>`;
-    })
-    .join("");
-}
-
-function moveItem(storageKey, id, newFolder) {
-  const items = getStoredData(storageKey, []);
-  const updated = items.map(item => item.id === id ? { ...item, folder: newFolder } : item);
-  setStoredData(storageKey, updated);
-  refreshFolderState();
-}
-
-function runSearch() {
-  const searchInput = document.getElementById("globalSearch");
-  if (!searchInput) return;
-
-  const query = searchInput.value.trim().toLowerCase();
-  const activeSection = document.querySelector(".section.active");
-  if (!activeSection) return;
-
-  const items = activeSection.querySelectorAll(".list-item, .photo-item");
-  items.forEach(item => {
-    const text = item.innerText.toLowerCase();
-    const searchAttr = (item.dataset.search || "").toLowerCase();
-    item.style.display = (text.includes(query) || searchAttr.includes(query)) ? "" : "none";
-  });
-}
-
-function saveNotes() {
-  const notesInput = document.getElementById("notesInput");
-  if (!notesInput) return;
-
-  const value = notesInput.value.trim();
-  if (!value) return;
-
-  const currentFolder = getCurrentFolder();
-  const key = getNotesKey(currentFolder);
-  const notes = parseStoredNotes(localStorage.getItem(key), currentFolder);
-  notes.unshift({
-    id: Date.now(),
-    folder: currentFolder,
-    text: value,
-    createdAt: new Date().toISOString()
-  });
-  localStorage.setItem(key, JSON.stringify(notes));
-  notesInput.value = "";
-  scheduleSyncToFirestore();
-  loadNotes();
-}
-
-function deleteNote(id) {
-  const currentFolder = getCurrentFolder();
-  const key = getNotesKey(currentFolder);
-  const notes = parseStoredNotes(localStorage.getItem(key), currentFolder)
-    .filter(item => String(item.id) !== String(id));
-
-  localStorage.setItem(key, JSON.stringify(notes));
-  scheduleSyncToFirestore();
-  loadNotes();
-}
-
-function loadNotes() {
-  const currentFolder = getCurrentFolder();
-  const key = getNotesKey(currentFolder);
-  const notes = parseStoredNotes(localStorage.getItem(key), currentFolder);
-  const notesInput = document.getElementById("notesInput");
-  const notesList = document.getElementById("notesList");
-
-  if (notesInput) notesInput.value = "";
-  if (!notesList) return;
-
-  notesList.innerHTML = "";
-  notes.forEach(item => {
-    const li = document.createElement("li");
-    li.className = "list-item note-item";
-    li.innerHTML = `
-      <span>${escapeHtml(item.text).replaceAll("\n", "<br>")}</span>
-      <div class="list-actions">
-        <button onclick="deleteNote('${escapeAttribute(String(item.id))}')">Delete</button>
-      </div>
-    `;
-    notesList.appendChild(li);
-  });
-
-  if (notes.length > 0) {
-    localStorage.setItem(key, JSON.stringify(notes));
-  }
-}
-
-/* Photo Albums */
-const ALBUMS_KEY = "bryantos_photo_albums";
-
-function getPhotoAlbums() {
-  return getStoredData(ALBUMS_KEY, {});
-}
-
-function setPhotoAlbums(data) {
-  setStoredData(ALBUMS_KEY, data);
-}
-
-function getAlbumsForFolder(folder) {
-  const all = getPhotoAlbums();
-  return Array.isArray(all[folder]) ? all[folder] : [];
-}
-
-function createAlbum() {
-  const input = document.getElementById("newAlbumInput");
-  if (!input) return;
-
-  const name = input.value.trim();
-  if (!name) {
-    alert("Enter an album name.");
-    return;
+  function renderChips() {
+    const show = !S.query && ["home", "notes", "photos", "links", "vault", "more"].includes(S.section) &&
+      !(S.section === "vault" && !S.vaultKey);
+    const el = $("#chips");
+    el.hidden = !show;
+    if (!show) return;
+    el.innerHTML = ["All"].concat(folders()).map((f) =>
+      `<button type="button" class="chip${S.folder === f ? " active" : ""}" data-act="folder" data-folder="${h(f)}" aria-pressed="${S.folder === f}">${f === "All" ? "" : dot(f)}${h(f)}</button>`
+    ).join("");
   }
 
-  const folder = getCurrentFolder();
-  const all = getPhotoAlbums();
-  const albums = Array.isArray(all[folder]) ? all[folder] : [];
+  const SECTIONS = {
+    home() {
+      const name = S.user && S.user.displayName ? S.user.displayName.split(" ")[0] : "";
+      return `<div class="view">
+        <div class="view-head"><h1>Hi${name ? " " + h(name) : ""}</h1></div>
+        <form class="card" data-form="quick">
+          <label for="quick" class="list-title">Save something quickly</label>
+          <textarea id="quick" name="text" class="input" rows="3" placeholder="Type or paste anything — a note, a link, a code…"></textarea>
+          <div class="row">
+            <button type="submit" class="btn btn-soft" name="as" value="note">Save as note</button>
+            <button type="submit" class="btn btn-soft" name="as" value="link">Save as link</button>
+            <button type="submit" class="btn btn-soft" name="as" value="vault">Save to Vault</button>
+            <label class="btn btn-soft upload-label">Add photo or document
+              <input type="file" accept="image/*,application/pdf" multiple data-upload>
+            </label>
+          </div>
+        </form>
+        <div class="tiles" data-list="tiles"></div>
+        <h2 class="sub">Recently added</h2>
+        <div class="list" data-list="recent"></div>
+      </div>`;
+    },
 
-  if (albums.some(a => a.toLowerCase() === name.toLowerCase())) {
-    alert("Album already exists in this folder.");
-    return;
-  }
+    notes() {
+      return `<div class="view">
+        <div class="view-head"><h1>Notes</h1></div>
+        <form class="card" data-form="note-add">
+          <label for="note-text" class="list-title">New note</label>
+          <textarea id="note-text" name="text" class="input" rows="4" placeholder="First line becomes the title…"></textarea>
+          <div class="row"><button type="submit" class="btn btn-primary">Save note</button><span class="small" data-list="saveTo"></span></div>
+        </form>
+        <div class="notes-grid" data-list="notes"></div>
+      </div>`;
+    },
 
-  albums.push(name);
-  all[folder] = albums;
-  setPhotoAlbums(all);
-  input.value = "";
-  renderAlbumFilter(name);
-  renderPhotos();
-}
+    photos() {
+      return `<div class="view">
+        <div class="view-head">
+          <h1>Photos &amp; docs</h1>
+          <label class="btn btn-primary upload-label">Upload
+            <input type="file" accept="image/*,application/pdf" multiple data-upload>
+          </label>
+        </div>
+        <div class="row">
+          <span class="row" data-list="albums"></span>
+          <form class="row" data-form="album-add">
+            <label class="sr" for="album-new">New album name</label>
+            <input id="album-new" name="name" class="input" style="min-height:38px;width:200px" placeholder="New album name">
+            <button type="submit" class="btn btn-small btn-soft">Create album</button>
+          </form>
+        </div>
+        <div data-list="photos"></div>
+      </div>`;
+    },
 
-function renderAlbumFilter(selectAlbum) {
-  const select = document.getElementById("albumFilter");
-  if (!select) return;
+    links() {
+      return `<div class="view">
+        <div class="view-head"><h1>Links</h1></div>
+        <form class="card" data-form="link-add">
+          <div class="form-grid">
+            <div class="field"><label for="link-url">Web address or email</label><input id="link-url" name="url" type="text" inputmode="url" placeholder="https://…" autocomplete="off"></div>
+            <div class="field"><label for="link-title">Name <span class="small">(optional)</span></label><input id="link-title" name="title" type="text" placeholder="e.g. Cloudflare dashboard"></div>
+          </div>
+          <div class="row"><button type="submit" class="btn btn-primary">Save link</button><span class="small" data-list="saveTo"></span></div>
+        </form>
+        <div class="list" data-list="links"></div>
+      </div>`;
+    },
 
-  const folder = getCurrentFolder();
-  const albums = getAlbumsForFolder(folder);
-  const current = selectAlbum !== undefined ? selectAlbum : select.value;
+    vault() {
+      return vaultView();
+    },
 
-  select.innerHTML = `<option value="">All Photos</option>` +
-    albums.map(a => `<option value="${escapeAttribute(a)}"${a === current ? " selected" : ""}>${escapeHtml(a)}</option>`).join("");
-}
+    more() {
+      return `<div class="view">
+        <div class="view-head"><h1>Money, bills &amp; dates</h1></div>
+        <div class="tabs" data-list="moreTabs"></div>
+        <div data-more-form></div>
+        <div data-list="moreList"></div>
+      </div>`;
+    },
 
-function getCurrentAlbum() {
-  const select = document.getElementById("albumFilter");
-  return select ? select.value : "";
-}
-
-function buildAlbumOptions(selectedAlbum, folder) {
-  const albums = getAlbumsForFolder(folder);
-  return `<option value=""${selectedAlbum === "" || selectedAlbum === null || selectedAlbum === undefined ? " selected" : ""}>No Album</option>` +
-    albums.map(a => `<option value="${escapeAttribute(a)}"${a === selectedAlbum ? " selected" : ""}>${escapeHtml(a)}</option>`).join("");
-}
-
-async function movePhotoToAlbum(docId, newAlbum) {
-  if (!_db || !_uid) return;
-  try {
-    await _db
-      .collection("users").doc(_uid)
-      .collection("photos").doc(docId)
-      .update({ album: newAlbum });
-    await loadPhotos();
-  } catch (err) {
-    console.error("[Photos] Album move failed:", err);
-  }
-}
-
-/* Photos */
-function compressImage(dataUrl, maxDimension, quality, callback) {
-  const img = new Image();
-  img.onerror = function() {
-    callback(dataUrl);
+    settings() {
+      return `<div class="view">
+        <div class="view-head"><h1>Settings &amp; folders</h1></div>
+        <h2 class="sub">Folders</h2>
+        <div class="list" data-list="folderRows"></div>
+        <form class="row" data-form="folder-add">
+          <label class="sr" for="folder-new">New folder name</label>
+          <input id="folder-new" name="name" class="input" style="flex:1 1 220px" placeholder="New folder name">
+          <button type="submit" class="btn btn-soft">Add folder</button>
+        </form>
+        <h2 class="sub">Vault security</h2>
+        ${LISTS.security()}
+        <h2 class="sub">Account</h2>
+        <div class="card">
+          <p data-list="account"></p>
+          <div class="row"><button type="button" class="btn btn-danger" data-act="signout">Sign out</button></div>
+        </div>
+      </div>`;
+    }
   };
-  img.onload = function() {
-    let width = img.width;
-    let height = img.height;
-    if (width > maxDimension || height > maxDimension) {
-      if (width >= height) {
-        height = Math.round(height * maxDimension / width);
-        width = maxDimension;
+
+  /* Lists */
+  const notesInView = () => list(K.notes).filter((n) => inFolder(n.folder));
+  const linksInView = () => list(K.links).filter((l) => inFolder(l.folder));
+  const photosInView = () => S.photos.filter((p) => inFolder(p.folder) && (!S.album || (p.album || "") === S.album));
+  const vaultInView = () => S.vaultItems.filter((v) => inFolder(v.folder));
+
+  function noteParts(text) {
+    const t = String(text || "").trim();
+    const i = t.indexOf("\n");
+    if (i === -1) return t.length > 70 ? { title: t.slice(0, 70) + "…", body: t } : { title: t, body: "" };
+    return { title: t.slice(0, i).trim(), body: t.slice(i + 1).trim() };
+  }
+
+  function linkHtml(l) {
+    const t = String(l.text || "").trim();
+    if (isUrl(t)) return `<a href="${h(t)}" target="_blank" rel="noopener noreferrer">${h(t)}</a>`;
+    if (isEmail(t)) return `<a href="mailto:${h(t)}">${h(t)}</a>`;
+    return h(t);
+  }
+  function linkName(l) {
+    if (l.title) return l.title;
+    const t = String(l.text || "");
+    try { return isUrl(t) ? new URL(t).hostname.replace(/^www\./, "") : t; } catch (e) { return t; }
+  }
+
+  const LISTS = {
+    saveTo() { return `Saves to ${h(targetFolder())}${S.folder === "All" ? " (pick a folder above to change)" : ""}`; },
+
+    tiles() {
+      const vaultCount = S.vaultKey ? vaultInView().length : list(K.vaultItems).filter((v) => inFolder(v.folder)).length;
+      const tile = (sec, n, label) => `<button type="button" class="tile" data-act="go" data-sec="${sec}"><span class="tile-num">${n}</span><span class="tile-label">${label}</span></button>`;
+      return tile("notes", notesInView().length, "Notes") +
+        tile("photos", S.photos.filter((p) => inFolder(p.folder)).length, "Photos &amp; docs") +
+        tile("links", linksInView().length, "Links") +
+        tile("vault", vaultCount, "Vault · " + (S.vaultKey ? "open" : "locked"));
+    },
+
+    recent() {
+      const rows = []
+        .concat(notesInView().map((n) => ({ kind: "Note", title: noteParts(n.text).title, folder: n.folder, t: idTime(n.id), sec: "notes" })))
+        .concat(linksInView().map((l) => ({ kind: "Link", title: linkName(l), folder: l.folder, t: idTime(l.id), sec: "links" })))
+        .concat(S.photos.filter((p) => inFolder(p.folder)).map((p) => ({ kind: "Photo", title: p.name, folder: p.folder, t: photoTime(p), sec: "photos" })))
+        .sort((a, b) => b.t - a.t)
+        .slice(0, 8);
+      if (!rows.length) return `<div class="empty">Nothing here yet. Save something above.</div>`;
+      return rows.map((r) => `<button type="button" class="list-row" style="width:100%;border-left:0;border-right:0;border-top:0;background:transparent;color:inherit;text-align:left" data-act="go" data-sec="${r.sec}">
+          <span class="kind">${r.kind}</span>
+          <span class="list-main"><span class="list-title">${h(r.title)}</span></span>
+          ${folderTag(r.folder)}<span class="small">${h(timeAgo(r.t))}</span>
+        </button>`).join("");
+    },
+
+    notes() {
+      const items = notesInView();
+      if (!items.length) return `<div class="list"><div class="empty">No notes${S.folder === "All" ? "" : " in " + h(S.folder)} yet.</div></div>`;
+      return items.map((n) => {
+        if (String(S.noteEdit) === String(n.id)) {
+          return `<form class="note" data-form="note-save" data-id="${h(n.id)}">
+            <label class="sr" for="edit-${h(n.id)}">Edit note</label>
+            <textarea id="edit-${h(n.id)}" name="text" class="input" rows="6">${h(n.text)}</textarea>
+            <div class="row"><button type="submit" class="btn btn-primary btn-small">Save</button><button type="button" class="btn btn-small" data-act="note-cancel">Cancel</button></div>
+          </form>`;
+        }
+        const p = noteParts(n.text);
+        return `<article class="note">
+          <h3>${h(p.title)}</h3>
+          ${p.body ? `<div class="note-body">${h(p.body)}</div>` : `<div class="note-body"></div>`}
+          <div class="note-foot">
+            <span class="small">${folderTag(n.folder)} · ${h(timeAgo(n.createdAt ? Date.parse(n.createdAt) : idTime(n.id)))}</span>
+            <span class="list-actions">
+              <button type="button" class="btn btn-small" data-act="note-edit" data-id="${h(n.id)}">Edit</button>
+              <label class="sr" for="mv-${h(n.id)}">Move to folder</label>
+              <select id="mv-${h(n.id)}" class="select-small" data-change="move" data-key="${K.notes}" data-id="${h(n.id)}">${folderOptions(n.folder)}</select>
+              <button type="button" class="btn btn-small btn-danger" data-act="del" data-key="${K.notes}" data-id="${h(n.id)}" aria-label="Delete note">Delete</button>
+            </span>
+          </div>
+        </article>`;
+      }).join("");
+    },
+
+    links() {
+      const items = linksInView();
+      if (!items.length) return `<div class="empty">No links${S.folder === "All" ? "" : " in " + h(S.folder)} yet.</div>`;
+      return items.map((l) => {
+        const t = String(l.text || "").trim();
+        const open = isUrl(t) ? `<a class="btn btn-small btn-soft" href="${h(t)}" target="_blank" rel="noopener noreferrer">Open</a>` : "";
+        return `<div class="list-row">
+          <div class="letter">${h(linkName(l).charAt(0) || "?")}</div>
+          <div class="list-main"><span class="list-title">${h(linkName(l))}</span><span class="list-sub">${linkHtml(l)}</span></div>
+          ${folderTag(l.folder)}
+          <div class="list-actions">
+            ${open}
+            <button type="button" class="btn btn-small" data-act="copy-text" data-text="${h(t)}">Copy</button>
+            <label class="sr" for="mvl-${h(l.id)}">Move to folder</label>
+            <select id="mvl-${h(l.id)}" class="select-small" data-change="move" data-key="${K.links}" data-id="${h(l.id)}">${folderOptions(l.folder)}</select>
+            <button type="button" class="btn btn-small btn-danger" data-act="del" data-key="${K.links}" data-id="${h(l.id)}">Delete</button>
+          </div>
+        </div>`;
+      }).join("");
+    },
+
+    albums() {
+      const all = S.data[K.albums] && typeof S.data[K.albums] === "object" ? S.data[K.albums] : {};
+      const names = S.folder === "All"
+        ? Array.from(new Set([].concat(...Object.values(all).filter(Array.isArray))))
+        : (Array.isArray(all[S.folder]) ? all[S.folder] : []);
+      if (S.album && !names.includes(S.album)) S.album = "";
+      const opts = [`<option value="">All albums</option>`].concat(names.map((a) => `<option value="${h(a)}"${a === S.album ? " selected" : ""}>${h(a)}</option>`)).join("");
+      return `<label for="album-filter" class="small">Album</label>
+        <select id="album-filter" class="select-small" data-change="album">${opts}</select>
+        <span class="small">Uploads go to ${h(targetFolder())}${S.album ? " · " + h(S.album) : ""}</span>`;
+    },
+
+    photos() {
+      const items = photosInView();
+      if (!items.length) return `<div class="list"><div class="empty">No photos or documents here yet.</div></div>`;
+      return `<div class="photo-grid">` + items.map((p) => {
+        const isPdf = /pdf/i.test(p.type || "") || /\.pdf$/i.test(p.name || "");
+        const thumb = isPdf
+          ? `<a class="photo-file" href="${h(p.url)}" target="_blank" rel="noopener noreferrer">PDF</a>`
+          : `<a class="photo-img" href="${h(p.url)}" target="_blank" rel="noopener noreferrer"><img src="${h(p.url)}" alt="${h(p.name)}" loading="lazy"></a>`;
+        return `<figure class="photo">${thumb}
+          <figcaption>
+            <span class="photo-name" title="${h(p.name)}">${h(p.name || "Untitled")}</span>
+            ${folderTag(p.folder)}
+            <div class="row">
+              <label class="sr" for="pf-${h(p.docId)}">Folder</label>
+              <select id="pf-${h(p.docId)}" class="select-small" data-change="photo-folder" data-id="${h(p.docId)}">${folderOptions(p.folder)}</select>
+              <button type="button" class="btn btn-small btn-danger" data-act="photo-del" data-id="${h(p.docId)}">Delete</button>
+            </div>
+          </figcaption>
+        </figure>`;
+      }).join("") + `</div>`;
+    },
+
+    vaultList() { return vaultListHtml(); },
+
+    moreTabs() {
+      return Object.keys(MORE).map((k) => `<button type="button" class="chip${S.moreTab === k ? " active" : ""}" data-act="more-tab" data-tab="${k}" aria-pressed="${S.moreTab === k}">${MORE[k].label}</button>`).join("");
+    },
+    moreList() {
+      const cfg = MORE[S.moreTab];
+      const items = list(cfg.key).filter((i) => inFolder(i.folder));
+      let summary = "";
+      if (S.moreTab === "money") {
+        const total = items.reduce((sum, i) => sum + (parseFloat(String(i.amount).replace(/[^0-9.+-]/g, "")) || 0), 0);
+        summary = `<p class="small" style="margin-bottom:8px">Total: <span class="${total < 0 ? "amount-neg" : "amount-pos"}">${total < 0 ? "-" : ""}£${Math.abs(total).toFixed(2)}</span></p>`;
+      }
+      const sorted = S.moreTab === "events" ? items.slice().sort((a, b) => String(a.date).localeCompare(String(b.date))) : items;
+      if (!sorted.length) return summary + `<div class="list"><div class="empty">Nothing here yet.</div></div>`;
+      return summary + `<div class="list">` + sorted.map((i) => `<div class="list-row${i.paid ? " paid" : ""}">
+          <div class="list-main">${cfg.row(i)}</div>
+          ${folderTag(i.folder)}
+          <div class="list-actions">
+            ${S.moreTab === "bills" ? `<button type="button" class="btn btn-small" data-act="bill-paid" data-id="${h(i.id)}">${i.paid ? "Not paid" : "Mark paid"}</button>` : ""}
+            <button type="button" class="btn btn-small btn-danger" data-act="del" data-key="${cfg.key}" data-id="${h(i.id)}">Delete</button>
+          </div>
+        </div>`).join("") + `</div>`;
+    },
+
+    folderRows() {
+      return folders().map((f) => `<div class="list-row">
+          ${dot(f)}<span class="list-main"><span class="list-title">${h(f)}</span></span>
+          <div class="list-actions">
+            <button type="button" class="btn btn-small" data-act="folder-rename" data-folder="${h(f)}">Rename</button>
+            <button type="button" class="btn btn-small btn-danger" data-act="folder-del" data-folder="${h(f)}">Delete</button>
+          </div>
+        </div>`).join("");
+    },
+
+    security() {
+      const st = S.data[K.vault];
+      if (!st) return `<div class="card"><p class="lead">The Vault isn't set up yet.</p><div class="row"><button type="button" class="btn btn-primary" data-act="go" data-sec="vault">Set up the Vault</button></div></div>`;
+      const devices = Object.entries(st.devices || {});
+      const devRows = devices.length
+        ? devices.map(([id, d]) => `<div class="list-row"><span class="list-main"><span class="list-title">${h(d.label || "Device")}</span><span class="list-sub">Added ${h(timeAgo(Date.parse(d.addedAt)))}</span></span>
+            <button type="button" class="btn btn-small btn-danger" data-act="bio-remove" data-id="${h(id)}">Remove</button></div>`).join("")
+        : `<div class="empty">No Face ID or fingerprint set up yet.</div>`;
+      const locked = !S.vaultKey;
+      return `<div class="card">
+        <p class="lead">The Vault locks itself after 5 minutes of no use. Copied secrets are cleared from the clipboard after 30 seconds where the browser allows it.</p>
+        <p class="small">Passphrase last changed: ${h(st.changedAt ? new Date(st.changedAt).toLocaleDateString("en-GB") : "unknown")}</p>
+      </div>
+      <div class="card">
+        <h3 class="list-title">Face ID / fingerprint</h3>
+        <div class="list">${devRows}</div>
+        ${locked ? `<p class="small">Unlock the Vault to add this device.</p>` : (window.Vault.biometricsAvailable() ? `<div class="row"><button type="button" class="btn btn-soft" data-act="bio-add">Turn on for this device</button></div>` : `<p class="small">This browser can't do Face ID / fingerprint unlock.</p>`)}
+      </div>
+      <form class="card" data-form="change-pass">
+        <h3 class="list-title">Change Vault passphrase</h3>
+        ${locked ? `<p class="small">Unlock the Vault first.</p>` : `
+        <div class="form-grid">
+          <div class="field"><label for="cp1">New passphrase</label><input id="cp1" name="p1" type="password" autocomplete="new-password" minlength="${window.Vault.MIN_PASSPHRASE}"></div>
+          <div class="field"><label for="cp2">Type it again</label><input id="cp2" name="p2" type="password" autocomplete="new-password"></div>
+        </div>
+        <p class="error" data-error></p>
+        <div class="row"><button type="submit" class="btn btn-primary">Change passphrase</button></div>`}
+      </form>`;
+    },
+
+    account() {
+      return S.user ? `Signed in as <strong>${h(S.user.email || S.user.displayName || "")}</strong>` : "Demo mode (this computer only)";
+    },
+
+    search() {
+      const q = S.query.toLowerCase();
+      const hit = (s) => String(s || "").toLowerCase().includes(q);
+      const rows = [];
+      list(K.notes).filter((n) => hit(n.text)).forEach((n) => rows.push({ kind: "Note", title: noteParts(n.text).title, folder: n.folder, sec: "notes" }));
+      list(K.links).filter((l) => hit(l.text) || hit(l.title)).forEach((l) => rows.push({ kind: "Link", title: linkName(l), folder: l.folder, sec: "links", url: isUrl(l.text) ? l.text : "" }));
+      S.photos.filter((p) => hit(p.name) || hit(p.album)).forEach((p) => rows.push({ kind: "Photo", title: p.name, folder: p.folder, sec: "photos" }));
+      S.vaultItems.filter((v) => hit(v.name) || hit(v.user) || hit(v.site) || hit(v.note)).forEach((v) => rows.push({ kind: "Vault", title: v.name, folder: v.folder, sec: "vault" }));
+      Object.keys(MORE).forEach((k) => {
+        list(MORE[k].key).filter((i) => hit(i.text) || hit(i.desc) || hit(i.name) || hit(i.number) || hit(i.date))
+          .forEach((i) => rows.push({ kind: MORE[k].label, title: i.text || i.desc || i.name, folder: i.folder, sec: "more", tab: k }));
+      });
+      const lockedNote = !S.vaultKey && S.data[K.vault] ? `<p class="small" style="margin-bottom:8px">Vault items are only searched while the Vault is unlocked.</p>` : "";
+      if (!rows.length) return lockedNote + `<div class="list"><div class="empty">Nothing matches “${h(S.query)}”.</div></div>`;
+      return lockedNote + `<div class="list">` + rows.map((r) => `<div class="list-row">
+          <span class="kind">${h(r.kind)}</span>
+          <span class="list-main"><span class="list-title">${h(r.title)}</span></span>
+          ${folderTag(r.folder)}
+          <div class="list-actions">
+            ${r.url ? `<a class="btn btn-small btn-soft" href="${h(r.url)}" target="_blank" rel="noopener noreferrer">Open</a>` : ""}
+            <button type="button" class="btn btn-small" data-act="go" data-sec="${r.sec}"${r.tab ? ` data-tab="${r.tab}"` : ""}>Show</button>
+          </div>
+        </div>`).join("") + `</div>`;
+    }
+  };
+
+  const MORE = {
+    money: {
+      label: "Money", key: K.money,
+      fields: [{ name: "desc", label: "What for", placeholder: "e.g. Van fuel" }, { name: "amount", label: "Amount", placeholder: "+100 or -50", mode: "decimal" }],
+      row: (i) => `<span class="list-title">${h(i.desc)}</span><span class="${String(i.amount).trim().startsWith("-") ? "amount-neg" : "amount-pos"}">${h(i.amount)}</span>`
+    },
+    bills: {
+      label: "Bills", key: K.bills,
+      fields: [{ name: "text", label: "Bill", placeholder: "e.g. Van insurance — £60 on the 3rd" }],
+      row: (i) => `<span class="list-title">${h(i.text)}</span><span class="list-sub">${i.paid ? "Paid" : "Not paid yet"}</span>`
+    },
+    events: {
+      label: "Dates", key: K.events,
+      fields: [{ name: "date", label: "Date", type: "date" }, { name: "text", label: "What's happening", placeholder: "e.g. MOT due" }],
+      row: (i) => `<span class="list-title">${h(i.text)}</span><span class="list-sub">${h(i.date ? new Date(i.date + "T00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" }) : "")}</span>`
+    },
+    contacts: {
+      label: "Contacts", key: K.contacts,
+      fields: [{ name: "name", label: "Name" }, { name: "number", label: "Phone number", type: "tel" }],
+      row: (i) => `<span class="list-title">${h(i.name)}</span><span class="list-sub"><a href="tel:${h(String(i.number).replace(/[^0-9+]/g, ""))}">${h(i.number)}</a></span>`
+    },
+    mail: {
+      label: "Saved emails", key: K.mail,
+      fields: [{ name: "text", label: "Message or email", placeholder: "Paste the important bit" }],
+      row: (i) => `<span class="list-title" style="font-weight:500;white-space:pre-wrap">${h(i.text)}</span>`
+    }
+  };
+
+  function moreFormHtml() {
+    const cfg = MORE[S.moreTab];
+    return `<form class="card" data-form="more-add">
+      <div class="form-grid">
+        ${cfg.fields.map((f) => `<div class="field"><label for="mf-${f.name}">${h(f.label)}</label><input id="mf-${f.name}" name="${f.name}" type="${f.type || "text"}"${f.mode ? ` inputmode="${f.mode}"` : ""} placeholder="${h(f.placeholder || "")}"></div>`).join("")}
+      </div>
+      <div class="row"><button type="submit" class="btn btn-primary">Add</button><span class="small">${LISTS.saveTo()}</span></div>
+    </form>`;
+  }
+
+  /* ── Vault views ───────────────────────────────────────────────────── */
+
+  function vaultView() {
+    const st = S.data[K.vault];
+    const oldItems = list(K.oldCodes);
+    const min = window.Vault.MIN_PASSPHRASE;
+
+    if (!st && oldItems.length) {
+      return `<div class="card lock-box">
+        <div class="lock-icon">${ICON_LOCK}</div>
+        <h1 style="font-size:24px">Upgrade your Vault</h1>
+        <p class="lead">Your ${oldItems.length} saved item${oldItems.length === 1 ? "" : "s"} used a short PIN, which isn't strong enough. Enter your old PIN once, then choose a passphrase. Everything gets re-locked with much stronger encryption.</p>
+        <form data-form="vault-upgrade" style="display:flex;flex-direction:column;gap:14px">
+          <div class="field"><label for="vu-pin">Old Vault PIN</label><input id="vu-pin" name="pin" type="password" inputmode="numeric" autocomplete="off"></div>
+          ${passFields(min)}
+          <p class="error" data-error></p>
+          <button type="submit" class="btn btn-primary btn-big">Upgrade Vault</button>
+        </form>
+      </div>`;
+    }
+
+    if (!st) {
+      return `<div class="card lock-box">
+        <div class="lock-icon">${ICON_LOCK}</div>
+        <h1 style="font-size:24px">Set up your Vault</h1>
+        <p class="lead">For passwords, API keys and codes. Everything is scrambled on your device before it's saved, so only your passphrase can open it.</p>
+        <form data-form="vault-setup" style="display:flex;flex-direction:column;gap:14px">
+          ${passFields(min)}
+          <p class="error" data-error></p>
+          <button type="submit" class="btn btn-primary btn-big">Create Vault</button>
+        </form>
+      </div>`;
+    }
+
+    if (!S.vaultKey) {
+      const bio = Object.keys(st.devices || {}).length && window.Vault.biometricsAvailable();
+      return `<div class="card lock-box">
+        <div class="lock-icon">${ICON_LOCK}</div>
+        <h1 style="font-size:24px">Vault is locked</h1>
+        <p class="lead">Passwords, API keys and codes.</p>
+        ${bio ? `<button type="button" class="btn btn-primary btn-big" data-act="bio-unlock">Unlock with Face ID / fingerprint</button>` : ""}
+        <form data-form="vault-unlock" style="display:flex;flex-direction:column;gap:14px">
+          <div class="field"><label for="vl-pass">${bio ? "Or type your passphrase" : "Your Vault passphrase"}</label><input id="vl-pass" name="pass" type="password" autocomplete="current-password"></div>
+          <p class="error" data-error></p>
+          <button type="submit" class="btn ${bio ? "" : "btn-primary"} btn-big">Unlock</button>
+        </form>
+        <p class="small">Locks itself after 5 minutes of no use.</p>
+      </div>`;
+    }
+
+    const bioOffer = window.Vault.biometricsAvailable() && !Object.keys(st.devices || {}).length;
+    return `<div class="view">
+      <div class="view-head">
+        <h1>Vault</h1>
+        <span class="pill-good">Unlocked · locks after 5 min idle</span>
+        <button type="button" class="btn btn-primary" data-act="vault-new">Add to Vault</button>
+        <button type="button" class="btn" data-act="vault-lock">Lock</button>
+      </div>
+      ${bioOffer ? `<div class="banner banner-info row" style="justify-content:space-between">Want to unlock with Face ID or fingerprint next time? <button type="button" class="btn btn-small btn-soft" data-act="bio-add">Turn it on</button></div>` : ""}
+      <div data-vault-form>${S.vaultForm ? vaultFormHtml() : ""}</div>
+      <div data-list="vaultList"></div>
+      <p class="small">Example: save an API key with a name, so you always know what it's for.</p>
+    </div>`;
+  }
+
+  function passFields(min) {
+    return `<div class="field"><label for="vp1">New passphrase</label>
+        <input id="vp1" name="p1" type="password" autocomplete="new-password" minlength="${min}">
+        <span class="hint">At least ${min} characters. Three random words is easy to remember and hard to guess, e.g. “purple tractor biscuit”. Write it down somewhere safe — it can't be reset.</span></div>
+      <div class="field"><label for="vp2">Type it again</label><input id="vp2" name="p2" type="password" autocomplete="new-password"></div>`;
+  }
+
+  function vaultListHtml() {
+    if (!S.vaultKey) return "";
+    const items = vaultInView();
+    if (!items.length) return `<div class="list"><div class="empty">Nothing in the Vault${S.folder === "All" ? "" : " for " + h(S.folder)} yet.</div></div>`;
+    return `<div class="list">` + items.map((v) => {
+      const shown = !!S.shown[v.id];
+      const sub = [v.type, v.user].filter(Boolean).map(h).join(" · ");
+      return `<div class="list-row">
+        <div class="letter">${h((v.name || "?").charAt(0))}</div>
+        <div class="list-main">
+          <span class="list-title">${h(v.name || "Untitled")}</span>
+          <span class="list-sub">${sub}${v.site ? ` · ${isUrl(v.site) ? `<a href="${h(v.site)}" target="_blank" rel="noopener noreferrer">${h(v.site)}</a>` : h(v.site)}` : ""}</span>
+          ${v.note ? `<span class="list-sub" style="white-space:pre-wrap">${h(v.note)}</span>` : ""}
+        </div>
+        <code class="secret${shown ? " shown" : ""}">${v.error ? "Can't open this item" : (shown ? h(v.secret) : "•••••••••••••")}</code>
+        ${folderTag(v.folder)}
+        <div class="list-actions">
+          <button type="button" class="btn btn-small" data-act="vault-show" data-id="${h(v.id)}" aria-pressed="${shown}">${shown ? "Hide" : "Show"}</button>
+          <button type="button" class="btn btn-small btn-soft" data-act="vault-copy" data-id="${h(v.id)}">${S.copied === v.id ? "Copied" : "Copy"}</button>
+          <button type="button" class="btn btn-small" data-act="vault-edit" data-id="${h(v.id)}">Edit</button>
+          <button type="button" class="btn btn-small btn-danger" data-act="vault-del" data-id="${h(v.id)}">Delete</button>
+        </div>
+      </div>`;
+    }).join("") + `</div>`;
+  }
+
+  function vaultFormHtml() {
+    const v = S.vaultForm === "new" ? { type: "Password", folder: targetFolder(), secret: S.vaultPrefill } : (S.vaultItems.find((x) => x.id === S.vaultForm) || {});
+    return `<form class="card" data-form="vault-save" autocomplete="off">
+      <h2 class="sub">${S.vaultForm === "new" ? "Add to Vault" : "Edit"}</h2>
+      <div class="form-grid">
+        <div class="field"><label for="vf-name">What is it for?</label><input id="vf-name" name="name" required value="${h(v.name || "")}" placeholder="e.g. Cloudflare"></div>
+        <div class="field"><label for="vf-type">Type</label><select id="vf-type" name="type">${VAULT_TYPES.map((t) => `<option${t === v.type ? " selected" : ""}>${h(t)}</option>`).join("")}</select></div>
+        <div class="field"><label for="vf-user">Username or email <span class="small">(optional)</span></label><input id="vf-user" name="user" value="${h(v.user || "")}"></div>
+        <div class="field"><label for="vf-secret">The secret</label><input id="vf-secret" name="secret" type="password" required value="${h(v.secret || "")}" autocomplete="new-password"></div>
+        <div class="field"><label for="vf-site">Website <span class="small">(optional)</span></label><input id="vf-site" name="site" inputmode="url" value="${h(v.site || "")}" placeholder="https://…"></div>
+        <div class="field"><label for="vf-folder">Folder</label><select id="vf-folder" name="folder">${folderOptions(v.folder || targetFolder())}</select></div>
+        <div class="field full"><label for="vf-note">Note <span class="small">(optional)</span></label><textarea id="vf-note" name="note" rows="2">${h(v.note || "")}</textarea></div>
+      </div>
+      <div class="row">
+        <button type="submit" class="btn btn-primary">Save</button>
+        <button type="button" class="btn" data-act="vault-cancel">Cancel</button>
+        <label class="row small" style="gap:6px;margin-left:auto"><input type="checkbox" data-act="vault-peek"> Show secret while typing</label>
+      </div>
+    </form>`;
+  }
+
+  const ICON_LOCK = `<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`;
+
+  function renderVaultForm() {
+    const el = $("[data-vault-form]");
+    if (el) el.innerHTML = S.vaultForm ? vaultFormHtml() : "";
+    const first = el && el.querySelector("input[name=name]");
+    if (first) first.focus();
+  }
+
+  /* ── Vault actions ─────────────────────────────────────────────────── */
+
+  async function decryptVault() {
+    if (!S.vaultKey) { S.vaultItems = []; return; }
+    const key = S.vaultKey;
+    const recs = list(K.vaultItems);
+    const out = await Promise.all(recs.map(async (r) => {
+      try { return { ...(await window.Vault.decryptItem(key, r)), id: r.id, folder: r.folder }; }
+      catch (e) { return { id: r.id, folder: r.folder, name: "Unreadable item", error: true }; }
+    }));
+    if (S.vaultKey === key) S.vaultItems = out;
+  }
+
+  function lockVault(reason) {
+    S.vaultKey = null;
+    S.vaultItems = [];
+    S.shown = {};
+    S.vaultForm = null;
+    S.vaultPrefill = "";
+    if (S.section === "vault" || S.section === "settings") renderSection(); else refresh();
+    if (reason) toast(reason);
+  }
+
+  async function openVault(key) {
+    S.vaultKey = key;
+    S.lastActive = Date.now();
+    await decryptVault();
+    renderSection();
+  }
+
+  function formError(form, msg) {
+    const el = form.querySelector("[data-error]");
+    if (el) el.textContent = msg;
+  }
+
+  function busy(form, on, label) {
+    const btn = form.querySelector("button[type=submit]");
+    if (!btn) return;
+    if (on) { btn.dataset.label = btn.textContent; btn.textContent = label || "Working…"; btn.disabled = true; }
+    else { btn.textContent = btn.dataset.label || btn.textContent; btn.disabled = false; }
+  }
+
+  function checkNewPass(form) {
+    const p1 = form.elements.p1.value;
+    const p2 = form.elements.p2.value;
+    if (p1.trim().length < window.Vault.MIN_PASSPHRASE) { formError(form, `Use at least ${window.Vault.MIN_PASSPHRASE} characters.`); return null; }
+    if (p1 !== p2) { formError(form, "The two passphrases don't match."); return null; }
+    return p1;
+  }
+
+  async function vaultSetup(form) {
+    const pass = checkNewPass(form);
+    if (!pass) return;
+    busy(form, true, "Creating…");
+    try {
+      const { state, key } = await window.Vault.create(pass);
+      await saveMany({ [K.vault]: state, [K.vaultItems]: list(K.vaultItems) });
+      await openVault(key);
+      toast("Vault created");
+    } catch (e) {
+      console.error(e);
+      busy(form, false);
+      formError(form, "Couldn't create the Vault. Please try again.");
+    }
+  }
+
+  async function vaultUpgrade(form) {
+    const pin = form.elements.pin.value;
+    const pass = checkNewPass(form);
+    if (!pass) return;
+    if (!pin) { formError(form, "Enter your old PIN."); return; }
+    busy(form, true, "Upgrading… (this takes a few seconds)");
+    try {
+      const ok = await window.Vault.legacyPinMatches(pin, S.data[K.oldHash], S.data[K.oldSalt]);
+      if (ok === false) { busy(form, false); formError(form, "That PIN isn't right."); return; }
+      const old = list(K.oldCodes);
+      const plain = old.map((o) => window.Vault.legacyDecrypt(o.text, pin));
+      if (plain.some((p) => p == null || p === "")) { busy(form, false); formError(form, "That PIN couldn't open your old items."); return; }
+
+      const { state, key } = await window.Vault.create(pass);
+      const items = [];
+      for (let i = 0; i < old.length; i++) {
+        const obj = { name: `Old Vault item ${i + 1}`, type: "Other secret", user: "", secret: plain[i], site: "", note: "Moved from the old Vault. Tap Edit to give it a name." };
+        const rec = await window.Vault.encryptItem(key, obj);
+        // Check it opens again before anything old is removed.
+        const back = await window.Vault.decryptItem(key, rec);
+        if (back.secret !== plain[i]) throw new Error("verify-failed");
+        items.push({ id: old[i].id || newId(), folder: old[i].folder || folders()[0], ...rec });
+      }
+      const reopened = await window.Vault.unlock(state, pass);
+      if (!reopened) throw new Error("verify-failed");
+
+      await saveMany({ [K.vault]: state, [K.vaultItems]: items });
+      // Only now remove the weak old copies.
+      await store.remove([K.oldCodes, K.oldHash, K.oldSalt, K.oldFlag]);
+      [K.oldCodes, K.oldHash, K.oldSalt, K.oldFlag, "bryantos_vault_wa_cred", "bryantos_vault_wa_pin", "bryantos_remote_bryantos_vault_pin_hash", "bryantos_remote_bryantos_vault_pin_salt", "bryantos_remote_bryantos_vault_encrypted"]
+        .forEach((k) => localStorage.removeItem(k));
+      sessionStorage.removeItem("vault_sess");
+      [K.oldCodes, K.oldHash, K.oldSalt, K.oldFlag].forEach((k) => delete S.data[k]);
+      await openVault(key);
+      toast("Vault upgraded");
+    } catch (e) {
+      console.error(e);
+      busy(form, false);
+      formError(form, "Upgrade failed — nothing was changed. Please try again.");
+    }
+  }
+
+  async function vaultUnlock(form) {
+    const pass = form.elements.pass.value;
+    if (!pass) { formError(form, "Type your passphrase."); return; }
+    busy(form, true, "Unlocking…");
+    try {
+      const key = await window.Vault.unlock(S.data[K.vault], pass);
+      await openVault(key);
+    } catch (e) {
+      busy(form, false);
+      formError(form, e.message === "wrong-passphrase" ? "That passphrase isn't right." : "Couldn't unlock. Please try again.");
+      form.elements.pass.select();
+    }
+  }
+
+  async function bioUnlock() {
+    try {
+      const key = await window.Vault.unlockBiometric(S.data[K.vault]);
+      await openVault(key);
+    } catch (e) {
+      if (e && e.name === "NotAllowedError") return; // cancelled
+      console.error(e);
+      toast("Face ID / fingerprint didn't work. Use your passphrase.");
+    }
+  }
+
+  async function bioAdd() {
+    try {
+      const label = deviceLabel();
+      const st = await window.Vault.addBiometric(S.data[K.vault], S.vaultKey, (S.user && S.user.email) || "BryantOS", label);
+      await save(K.vault, st);
+      toast("Face ID / fingerprint turned on for " + label);
+      renderSection();
+    } catch (e) {
+      if (e && e.name === "NotAllowedError") return;
+      console.error(e);
+      toast(e && e.message === "biometrics-unsupported" ? "This device or browser doesn't support it yet." : "Couldn't turn it on. Please try again.");
+    }
+  }
+
+  function deviceLabel() {
+    const ua = navigator.userAgent;
+    const os = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? "Android" : /Mac/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows PC" : "Device";
+    const br = /Edg\//.test(ua) ? "Edge" : /Chrome\//.test(ua) ? "Chrome" : /Firefox\//.test(ua) ? "Firefox" : /Safari\//.test(ua) ? "Safari" : "";
+    return br ? `${os} · ${br}` : os;
+  }
+
+  async function vaultSave(form) {
+    const f = form.elements;
+    const obj = {
+      name: f.name.value.trim(), type: f.type.value, user: f.user.value.trim(),
+      secret: f.secret.value, site: f.site.value.trim(), note: f.note.value.trim()
+    };
+    if (!obj.name || !obj.secret) return;
+    busy(form, true, "Saving…");
+    try {
+      const rec = await window.Vault.encryptItem(S.vaultKey, obj);
+      const items = list(K.vaultItems).slice();
+      if (S.vaultForm === "new") {
+        items.unshift({ id: newId(), folder: f.folder.value, ...rec });
       } else {
-        width = Math.round(width * maxDimension / height);
-        height = maxDimension;
+        const i = items.findIndex((x) => x.id === S.vaultForm);
+        if (i >= 0) items[i] = { id: items[i].id, folder: f.folder.value, ...rec };
       }
+      S.vaultForm = null;
+      S.vaultPrefill = "";
+      await save(K.vaultItems, items);
+      await decryptVault();
+      renderVaultForm();
+      refresh();
+      toast("Saved to Vault");
+    } catch (e) {
+      console.error(e);
+      busy(form, false);
+      toast("Couldn't save. Please try again.");
     }
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      callback(dataUrl);
+  }
+
+  async function copySecret(text, id) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      toast("Couldn't copy on this browser.");
       return;
     }
-    ctx.drawImage(img, 0, 0, width, height);
-    callback(canvas.toDataURL("image/jpeg", quality));
-  };
-  img.src = dataUrl;
-}
-
-function dataUrlToBlob(dataUrl) {
-  const [header, base64] = dataUrl.split(",");
-  const mime = header.match(/:(.*?);/)[1];
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return new Blob([bytes], { type: mime });
-}
-
-async function addPhoto(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-
-  if (!_uid || !_storage || !_db) {
-    alert("Not signed in. Please sign in and try again.");
-    return;
+    S.copied = id;
+    refresh();
+    setTimeout(() => { if (S.copied === id) { S.copied = null; refresh(); } }, 1500);
+    if (id !== null) {
+      setTimeout(() => {
+        // Best effort: browsers only allow this while the page is in front.
+        if (document.hasFocus()) navigator.clipboard.writeText("").catch(() => {});
+      }, CLIPBOARD_CLEAR_MS);
+    }
+    toast("Copied");
   }
 
-  const folder = getCurrentFolder();
-  const timestamp = Date.now();
-  const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const fileName = `${timestamp}_${sanitizedName}`;
-  const storagePath = `users/${_uid}/photos/${folder}/${fileName}`;
+  /* ── Other actions ─────────────────────────────────────────────────── */
 
-  console.log("[Photos] Upload start:", fileName);
+  function go(sec, tab) {
+    S.section = sec;
+    S.query = "";
+    if (tab) S.moreTab = tab;
+    const search = $("#search");
+    if (search) search.value = "";
+    S.noteEdit = null;
+    renderSection();
+    if (sec === "more") $("[data-more-form]").innerHTML = moreFormHtml();
+    window.scrollTo(0, 0);
+  }
 
-  const reader = new FileReader();
-  reader.onload = function(e) {
-    compressImage(e.target.result, 1200, 0.75, async function(compressedDataUrl) {
+  function addItem(key, item) {
+    return save(key, [{ id: newId(), folder: targetFolder(), ...item }].concat(list(key)));
+  }
+
+  async function uploadFiles(files) {
+    files = Array.from(files || []);
+    if (!files.length) return;
+    const folder = targetFolder();
+    toast(`Uploading ${files.length} file${files.length === 1 ? "" : "s"}…`);
+    let ok = 0;
+    for (const file of files) {
       try {
-        const blob = dataUrlToBlob(compressedDataUrl);
-        const storageRef = _storage.ref(storagePath);
-        await storageRef.put(blob);
-        const url = await storageRef.getDownloadURL();
-        console.log("[Photos] Upload success:", url);
-
-        await _db
-          .collection("users").doc(_uid)
-          .collection("photos")
-          .add({
-            name: file.name,
-            url: url,
-            folder: folder,
-            album: getCurrentAlbum(),
-            storagePath: storagePath,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-          });
-        console.log("[Photos] Firestore save success");
-
-        const input = document.getElementById("photoInput");
-        if (input) input.value = "";
-
-        await loadPhotos();
-      } catch (err) {
-        console.error("[Photos] Upload failed:", err);
-        alert("Photo upload failed. Please try again.");
-      }
-    });
-  };
-  reader.readAsDataURL(file);
-}
-
-async function deletePhoto(docId) {
-  if (!_db || !_uid) return;
-  try {
-    const docRef = _db.collection("users").doc(_uid).collection("photos").doc(docId);
-    const doc = await docRef.get();
-    if (doc.exists) {
-      const data = doc.data();
-      if (data.storagePath && _storage) {
-        try {
-          await _storage.ref(data.storagePath).delete();
-        } catch (storageErr) {
-          console.warn("[Photos] Storage delete failed:", storageErr);
-        }
-      }
-      await docRef.delete();
-    }
-    await loadPhotos();
-  } catch (err) {
-    console.error("[Photos] Delete failed:", err);
-  }
-}
-
-async function movePhoto(docId, newFolder) {
-  if (!_db || !_uid) return;
-  try {
-    await _db
-      .collection("users").doc(_uid)
-      .collection("photos").doc(docId)
-      .update({ folder: newFolder });
-    await loadPhotos();
-  } catch (err) {
-    console.error("[Photos] Move failed:", err);
-  }
-}
-
-async function loadPhotos() {
-  if (!_db || !_uid) return;
-  try {
-    const snapshot = await _db
-      .collection("users").doc(_uid)
-      .collection("photos")
-      .orderBy("createdAt", "desc")
-      .get();
-    _firestorePhotos = snapshot.docs.map(doc => ({ ...doc.data(), docId: doc.id }));
-    console.log("[Photos] Load results count:", _firestorePhotos.length);
-    renderPhotos();
-  } catch (err) {
-    if (err.code === "failed-precondition") {
-      console.error("[Photos] Missing Firestore index. Visit the Firebase console to create an index on 'photos.createdAt'.", err);
-    } else {
-      console.error("[Photos] Load failed:", err);
-    }
-  }
-}
-
-function shortenFileName(name, max = 28) {
-  if (!name) return "Untitled image";
-  if (name.length <= max) return name;
-  const extIndex = name.lastIndexOf(".");
-  if (extIndex === -1) return name.slice(0, max) + "...";
-  const ext = name.slice(extIndex);
-  const base = name.slice(0, extIndex);
-  const baseMax = max - ext.length - 3;
-  if (baseMax <= 0) return name.slice(0, max) + "...";
-  return base.slice(0, baseMax) + "..." + ext;
-}
-
-function renderPhotos() {
-  const list = document.getElementById("photoList");
-  if (!list) return;
-
-  const currentFolder = getCurrentFolder();
-  const selectedAlbum = getCurrentAlbum();
-  let items = _firestorePhotos.filter(item => item.folder === currentFolder);
-
-  if (selectedAlbum !== "") {
-    items = items.filter(item => (item.album || "") === selectedAlbum);
-  }
-
-  list.innerHTML = "";
-
-  items.forEach(item => {
-    const li = document.createElement("li");
-    li.className = "photo-item";
-    li.dataset.search = (item.name || "").toLowerCase();
-    li.innerHTML = `
-      <div class="photo-card">
-        <img src="${escapeAttribute(item.url)}" alt="${escapeAttribute(item.name)}" class="photo-preview">
-        <div class="photo-meta">
-          <div class="photo-title">${escapeHtml(shortenFileName(item.name))}</div>
-          <div class="photo-subtitle">Folder: ${escapeHtml(item.folder || "General")}</div>
-          <div class="photo-subtitle">Album: ${escapeHtml(item.album || "No Album")}</div>
-        </div>
-        <div class="photo-actions">
-          <select onchange="movePhoto('${escapeAttribute(item.docId)}', this.value)">
-            ${buildFolderOptions(item.folder)}
-          </select>
-          <select onchange="movePhotoToAlbum('${escapeAttribute(item.docId)}', this.value)">
-            ${buildAlbumOptions(item.album || "", currentFolder)}
-          </select>
-          <button onclick="deletePhoto('${escapeAttribute(item.docId)}')">Delete</button>
-        </div>
-      </div>
-    `;
-    list.appendChild(li);
-  });
-
-  runSearch();
-}
-
-/* Mail */
-function addMail() {
-  const input = document.getElementById("mailInput");
-  if (!input) return;
-
-  const value = input.value.trim();
-  if (!value) return;
-
-  const items = getStoredData("bryantos_mail", []);
-  items.unshift({
-    id: Date.now(),
-    folder: getCurrentFolder(),
-    text: value
-  });
-
-  setStoredData("bryantos_mail", items);
-  input.value = "";
-  renderMail();
-}
-
-function deleteMail(id) {
-  const items = getStoredData("bryantos_mail", []).filter(item => item.id !== id);
-  setStoredData("bryantos_mail", items);
-  renderMail();
-}
-
-function renderMail() {
-  const list = document.getElementById("mailList");
-  if (!list) return;
-
-  const items = getFilteredItems("bryantos_mail");
-  list.innerHTML = "";
-
-  items.forEach(item => {
-    const li = document.createElement("li");
-    li.className = "list-item";
-    li.innerHTML = `
-      <span>${escapeHtml(item.text)}</span>
-      <div class="list-actions">
-        <select onchange="moveItem('bryantos_mail', ${item.id}, this.value)">
-          ${buildFolderOptions(item.folder)}
-        </select>
-        <button onclick="deleteMail(${item.id})">Delete</button>
-      </div>
-    `;
-    list.appendChild(li);
-  });
-
-  runSearch();
-}
-
-/* Money */
-function addMoney() {
-  const descInput = document.getElementById("moneyDesc");
-  const amountInput = document.getElementById("moneyAmount");
-  if (!descInput || !amountInput) return;
-
-  const desc = descInput.value.trim();
-  const amount = amountInput.value.trim();
-  if (!desc || !amount) return;
-
-  const items = getStoredData("bryantos_money", []);
-  items.unshift({
-    id: Date.now(),
-    folder: getCurrentFolder(),
-    desc,
-    amount
-  });
-
-  setStoredData("bryantos_money", items);
-  descInput.value = "";
-  amountInput.value = "";
-  renderMoney();
-}
-
-function deleteMoney(id) {
-  const items = getStoredData("bryantos_money", []).filter(item => item.id !== id);
-  setStoredData("bryantos_money", items);
-  renderMoney();
-}
-
-function renderMoney() {
-  const list = document.getElementById("moneyList");
-  if (!list) return;
-
-  const items = getFilteredItems("bryantos_money");
-  list.innerHTML = "";
-
-  items.forEach(item => {
-    const isIncome = item.amount.trim().startsWith("+");
-    const amountClass = isIncome ? "money-in" : "money-out";
-
-    const li = document.createElement("li");
-    li.className = "list-item";
-    li.innerHTML = `
-      <span>
-        <strong>${escapeHtml(item.desc)}</strong> -
-        <span class="${amountClass}">${escapeHtml(item.amount)}</span>
-      </span>
-      <div class="list-actions">
-        <select onchange="moveItem('bryantos_money', ${item.id}, this.value)">
-          ${buildFolderOptions(item.folder)}
-        </select>
-        <button onclick="deleteMoney(${item.id})">Delete</button>
-      </div>
-    `;
-    list.appendChild(li);
-  });
-
-  runSearch();
-}
-
-/* Bills */
-function addBill() {
-  const input = document.getElementById("billInput");
-  if (!input) return;
-
-  const value = input.value.trim();
-  if (!value) return;
-
-  const items = getStoredData("bryantos_bills", []);
-  items.unshift({
-    id: Date.now(),
-    folder: getCurrentFolder(),
-    text: value,
-    paid: false
-  });
-
-  setStoredData("bryantos_bills", items);
-  input.value = "";
-  renderBills();
-}
-
-function toggleBill(id) {
-  const items = getStoredData("bryantos_bills", []);
-  const updated = items.map(item => item.id === id ? { ...item, paid: !item.paid } : item);
-  setStoredData("bryantos_bills", updated);
-  renderBills();
-}
-
-function deleteBill(id) {
-  const items = getStoredData("bryantos_bills", []).filter(item => item.id !== id);
-  setStoredData("bryantos_bills", items);
-  renderBills();
-}
-
-function renderBills() {
-  const list = document.getElementById("billList");
-  if (!list) return;
-
-  const items = getFilteredItems("bryantos_bills");
-  list.innerHTML = "";
-
-  items.forEach(item => {
-    const statusClass = item.paid ? "paid" : "unpaid";
-    const statusText = item.paid ? "Paid" : "Unpaid";
-
-    const li = document.createElement("li");
-    li.className = "list-item";
-    li.innerHTML = `
-      <span>
-        ${escapeHtml(item.text)} -
-        <span class="${statusClass}">${statusText}</span>
-      </span>
-      <div class="list-actions">
-        <select onchange="moveItem('bryantos_bills', ${item.id}, this.value)">
-          ${buildFolderOptions(item.folder)}
-        </select>
-        <button onclick="toggleBill(${item.id})">Toggle</button>
-        <button onclick="deleteBill(${item.id})">Delete</button>
-      </div>
-    `;
-    list.appendChild(li);
-  });
-
-  runSearch();
-}
-
-/* Links */
-function addLink() {
-  const input = document.getElementById("linkInput");
-  if (!input) return;
-
-  const value = input.value.trim();
-  if (!value) return;
-
-  const items = getStoredData("bryantos_links", []);
-  items.unshift({
-    id: Date.now(),
-    folder: getCurrentFolder(),
-    text: value
-  });
-
-  setStoredData("bryantos_links", items);
-  input.value = "";
-  renderLinks();
-}
-
-function deleteLink(id) {
-  const items = getStoredData("bryantos_links", []).filter(item => item.id !== id);
-  setStoredData("bryantos_links", items);
-  renderLinks();
-}
-
-function renderLinks() {
-  const list = document.getElementById("linkList");
-  if (!list) return;
-
-  const items = getFilteredItems("bryantos_links");
-  list.innerHTML = "";
-
-  items.forEach(item => {
-    const li = document.createElement("li");
-    li.className = "list-item";
-
-    let content = escapeHtml(item.text);
-
-    if (item.text.startsWith("http://") || item.text.startsWith("https://")) {
-      content = `<a href="${escapeAttribute(item.text)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.text)}</a>`;
-    } else if (item.text.includes("@")) {
-      content = `<a href="mailto:${escapeAttribute(item.text)}">${escapeHtml(item.text)}</a>`;
-    }
-
-    li.innerHTML = `
-      <span>${content}</span>
-      <div class="list-actions">
-        <select onchange="moveItem('bryantos_links', ${item.id}, this.value)">
-          ${buildFolderOptions(item.folder)}
-        </select>
-        <button onclick="deleteLink(${item.id})">Delete</button>
-      </div>
-    `;
-    list.appendChild(li);
-  });
-
-  runSearch();
-}
-
-/* Vault encryption helpers ──────────────────────────────────────────────────── */
-
-function _vaultGetSalt() {
-  let salt = localStorage.getItem(VAULT_PIN_SALT_KEY);
-  if (!salt) {
-    salt = CryptoJS.lib.WordArray.random(16).toString();
-    localStorage.setItem(VAULT_PIN_SALT_KEY, salt);
-  }
-  return salt;
-}
-
-function _vaultHashPin(pin) {
-  return _vaultHashPinWithSalt(pin, _vaultGetSalt());
-}
-
-function _vaultHashPinWithSalt(pin, salt) {
-  return CryptoJS.PBKDF2(String(pin), salt, {
-    keySize: 8, iterations: 600000
-  }).toString();
-}
-
-function _encryptText(text, key) {
-  return CryptoJS.AES.encrypt(String(text), String(key)).toString();
-}
-
-function _decryptText(ciphertext, key) {
-  try {
-    const bytes = CryptoJS.AES.decrypt(String(ciphertext), String(key));
-    return bytes.toString(CryptoJS.enc.Utf8) || null;
-  } catch {
-    return null;
-  }
-}
-
-function vaultHasPin() {
-  return !!localStorage.getItem(VAULT_PIN_HASH_KEY);
-}
-
-function vaultIsUnlocked() {
-  return _vaultPin !== null;
-}
-
-// CryptoJS AES.encrypt() output (OpenSSL format) always starts with this prefix
-// (base64 of the "Salted__" + 8-byte salt header). Used to detect existing ciphertext.
-function _isLikelyCiphertext(text) {
-  return typeof text === "string" && text.startsWith("U2FsdGVkX1");
-}
-
-// Encrypt all existing vault entries in-place with the given PIN.
-// Skips items that are already CryptoJS ciphertext to prevent double-encryption
-// when localStorage is fresh but Firestore data was encrypted in a prior session.
-function _vaultEncryptAll(pin) {
-  const items = getStoredData("bryantos_codes", []);
-  const encrypted = items.map(item => {
-    if (_isLikelyCiphertext(item.text)) {
-      console.log("[Vault] _vaultEncryptAll: item already encrypted, skipping id:", item.id);
-      return item;
-    }
-    console.log("[Vault] _vaultEncryptAll: encrypting plaintext item id:", item.id);
-    return { ...item, text: _encryptText(item.text, pin) };
-  });
-  setStoredData("bryantos_codes", encrypted);
-  localStorage.setItem(VAULT_ENC_FLAG_KEY, "true");
-}
-
-// Re-encrypt all vault entries when changing PIN.
-function _vaultReEncryptAll(oldPin, newPin) {
-  const items = getStoredData("bryantos_codes", []);
-  const reEncrypted = items.map(item => {
-    const plain = _decryptText(item.text, oldPin) || item.text;
-    return { ...item, text: _encryptText(plain, newPin) };
-  });
-  setStoredData("bryantos_codes", reEncrypted);
-}
-
-// Encode a PIN for sessionStorage (safe for any Unicode characters).
-function _vaultEncodeSession(pin) {
-  const bytes = new TextEncoder().encode(String(pin));
-  let binary = "";
-  bytes.forEach(b => { binary += String.fromCharCode(b); });
-  return btoa(binary);
-}
-
-// Decode a PIN from sessionStorage. Returns null on any error.
-function _vaultDecodeSession(encoded) {
-  try {
-    const binary = atob(encoded);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return new TextDecoder().decode(bytes);
-  } catch {
-    return null;
-  }
-}
-
-// Set (or replace) the vault PIN and encrypt all entries.
-function vaultSetNewPin(pin) {
-  const wasEncrypted = localStorage.getItem(VAULT_ENC_FLAG_KEY) === "true";
-  if (wasEncrypted && _vaultPin) {
-    _vaultReEncryptAll(_vaultPin, pin);
-  } else if (!wasEncrypted) {
-    _vaultEncryptAll(pin);
-  }
-  localStorage.setItem(VAULT_PIN_HASH_KEY, _vaultHashPin(pin));
-  _vaultPin = pin;
-  sessionStorage.setItem("vault_sess", _vaultEncodeSession(pin));
-  // Immediately sync hash/salt/flag to Firestore so they are available on the
-  // next fresh-localStorage load (e.g. new device, cleared storage, private window).
-  scheduleSyncToFirestore();
-}
-
-// Try to unlock the vault with the given PIN. Returns true on success.
-function vaultUnlock(pin) {
-  if (!vaultHasPin()) {
-    vaultSetNewPin(pin);
-    return true;
-  }
-  if (_vaultHashPin(pin) === localStorage.getItem(VAULT_PIN_HASH_KEY)) {
-    _vaultPin = pin;
-    sessionStorage.setItem("vault_sess", _vaultEncodeSession(pin));
-    return true;
-  }
-
-  const remoteHash = localStorage.getItem(`${REMOTE_VAULT_PREFIX}${VAULT_PIN_HASH_KEY}`);
-  const remoteSalt = localStorage.getItem(`${REMOTE_VAULT_PREFIX}${VAULT_PIN_SALT_KEY}`);
-  if (remoteHash && remoteSalt && _vaultHashPinWithSalt(pin, remoteSalt) === remoteHash) {
-    localStorage.setItem(VAULT_PIN_HASH_KEY, remoteHash);
-    localStorage.setItem(VAULT_PIN_SALT_KEY, remoteSalt);
-    const remoteFlag = localStorage.getItem(`${REMOTE_VAULT_PREFIX}${VAULT_ENC_FLAG_KEY}`);
-    if (remoteFlag !== null) {
-      localStorage.setItem(VAULT_ENC_FLAG_KEY, remoteFlag);
-    }
-    _vaultPin = pin;
-    sessionStorage.setItem("vault_sess", _vaultEncodeSession(pin));
-    scheduleSyncToFirestore();
-    return true;
-  }
-
-  return false;
-}
-
-// Lock the vault — clears in-memory PIN, clears session, and shows the lock overlay.
-function vaultLock() {
-  _vaultPin = null;
-  sessionStorage.removeItem("vault_sess");
-  console.log("[Vault] Vault locked, session cleared");
-  _showVaultLockUI();
-}
-
-/* Vault UI helpers ───────────────────────────────────────────────────────────── */
-
-function _showVaultLockUI() {
-  const lockEl    = document.getElementById("vaultLock");
-  const contentEl = document.getElementById("vaultContent");
-  if (!lockEl || !contentEl) return;
-
-  lockEl.hidden    = false;
-  contentEl.hidden = true;
-
-  const hasPin     = vaultHasPin();
-  const titleEl    = document.getElementById("vaultLockTitle");
-  const subtitleEl = document.getElementById("vaultLockSubtitle");
-  const confirmEl  = document.getElementById("vaultPinConfirm");
-  const pinEl      = document.getElementById("vaultPinInput");
-  const errorEl    = document.getElementById("vaultPinError");
-  const bioBtn     = document.getElementById("vaultBioBtn");
-
-  if (titleEl)    titleEl.textContent    = hasPin ? "Vault Locked"          : "Set Your Vault PIN";
-  if (subtitleEl) subtitleEl.textContent = hasPin ? "Enter your PIN to unlock." : "Create a PIN to protect your vault.";
-  if (confirmEl)  confirmEl.hidden       = hasPin;
-  if (pinEl)      pinEl.value            = "";
-  if (confirmEl)  confirmEl.value        = "";
-  if (errorEl)    errorEl.textContent    = "";
-  if (pinEl)      pinEl.focus();
-
-  if (bioBtn) {
-    const credId = localStorage.getItem(VAULT_WA_CRED_KEY);
-    bioBtn.hidden = !(window.PublicKeyCredential && credId);
-  }
-}
-
-function _showVaultContentUI() {
-  const lockEl    = document.getElementById("vaultLock");
-  const contentEl = document.getElementById("vaultContent");
-  if (!lockEl || !contentEl) return;
-
-  lockEl.hidden    = true;
-  contentEl.hidden = false;
-
-  // Show biometrics registration prompt if WebAuthn is available and not yet set up.
-  const bioRegWrap = document.getElementById("vaultBioRegWrap");
-  if (bioRegWrap) {
-    const hasCred = !!localStorage.getItem(VAULT_WA_CRED_KEY);
-    bioRegWrap.hidden = !(window.PublicKeyCredential && !hasCred);
-  }
-
-  renderCodes();
-}
-
-// Called by the "Unlock" button and PIN inputs' Enter key.
-function vaultSubmitPin() {
-  const pinEl     = document.getElementById("vaultPinInput");
-  const confirmEl = document.getElementById("vaultPinConfirm");
-  const errorEl   = document.getElementById("vaultPinError");
-  const pin = pinEl ? pinEl.value.trim() : "";
-
-  console.log("[Vault] Unlock clicked, _vaultPin before:", _vaultPin !== null, "vaultHasPin:", vaultHasPin());
-
-  if (errorEl) errorEl.textContent = "";
-  if (!pin) {
-    if (errorEl) errorEl.textContent = "Please enter a PIN.";
-    return;
-  }
-
-  if (!vaultHasPin()) {
-    // First-time setup — require confirmation.
-    const confirm = confirmEl ? confirmEl.value.trim() : "";
-    if (pin !== confirm) {
-      if (errorEl) errorEl.textContent = "PINs do not match.";
-      return;
-    }
-    console.log("[Vault] First-time PIN setup, encrypt PIN present:", !!pin);
-    vaultSetNewPin(pin);
-    console.log("[Vault] Vault PIN set, _vaultPin present:", _vaultPin !== null);
-    _showVaultContentUI();
-    return;
-  }
-
-  console.log("[Vault] Verifying PIN, _vaultPin will be set on success");
-  if (vaultUnlock(pin)) {
-    console.log("[Vault] Unlock succeeded, _vaultPin present:", _vaultPin !== null);
-    _showVaultContentUI();
-  } else {
-    console.warn("[Vault] Unlock failed — wrong PIN");
-    if (errorEl) errorEl.textContent = "Wrong PIN. Try again.";
-    if (pinEl)   pinEl.value = "";
-  }
-}
-
-/* WebAuthn biometric helpers ─────────────────────────────────────────────────── */
-
-// Convert a WordArray to a Uint8Array.
-function _wordArrayToUint8(wordArray) {
-  const words = wordArray.words;
-  const len   = wordArray.sigBytes;
-  const u8    = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    u8[i] = (words[i >>> 2] >>> (24 - (i % 4) * 8)) & 0xff;
-  }
-  return u8;
-}
-
-// Register a WebAuthn credential to allow biometric vault unlock.
-async function vaultRegisterBiometric() {
-  if (!window.PublicKeyCredential) {
-    alert("Biometrics are not supported on this device or browser.");
-    return;
-  }
-  try {
-    const challenge = _wordArrayToUint8(CryptoJS.lib.WordArray.random(32));
-    const userId    = _wordArrayToUint8(CryptoJS.lib.WordArray.random(16));
-
-    const credential = await navigator.credentials.create({
-      publicKey: {
-        challenge,
-        rp: { name: "BryantOS Vault", id: location.hostname },
-        user: { id: userId, name: "vault", displayName: "BryantOS Vault" },
-        pubKeyCredParams: [
-          { type: "public-key", alg: -7   },   // ES256
-          { type: "public-key", alg: -257 }    // RS256
-        ],
-        authenticatorSelection: { userVerification: "required", residentKey: "preferred" },
-        timeout: 60000
-      }
-    });
-
-    const credIdB64 = btoa(String.fromCharCode(...new Uint8Array(credential.rawId)));
-    localStorage.setItem(VAULT_WA_CRED_KEY, credIdB64);
-
-    // Encrypt the session PIN with the credential ID so it can be recovered after
-    // a successful biometric assertion (credential ID is the decryption gate).
-    const sess = sessionStorage.getItem("vault_sess");
-    if (sess) {
-      localStorage.setItem(VAULT_WA_PIN_KEY, _encryptText(sess, credIdB64));
-    }
-
-    const bioRegWrap = document.getElementById("vaultBioRegWrap");
-    if (bioRegWrap) bioRegWrap.hidden = true;
-
-    alert("Biometrics enabled! You can now use your fingerprint or face to unlock the vault.");
-  } catch (err) {
-    if (err.name !== "NotAllowedError") {
-      console.error("WebAuthn registration failed:", err);
-      alert("Biometric setup failed: " + err.message);
-    }
-  }
-}
-
-// Authenticate with a registered WebAuthn credential to unlock the vault.
-async function vaultBiometricAuth() {
-  if (!window.PublicKeyCredential) return;
-  const credIdB64 = localStorage.getItem(VAULT_WA_CRED_KEY);
-  if (!credIdB64) return;
-
-  const errorEl = document.getElementById("vaultPinError");
-  try {
-    const challenge  = _wordArrayToUint8(CryptoJS.lib.WordArray.random(32));
-    const credIdBytes = Uint8Array.from(atob(credIdB64).split("").map(c => c.charCodeAt(0)));
-
-    await navigator.credentials.get({
-      publicKey: {
-        challenge,
-        rpId: location.hostname,
-        allowCredentials: [{ type: "public-key", id: credIdBytes }],
-        userVerification: "required",
-        timeout: 60000
-      }
-    });
-
-    // WebAuthn assertion succeeded — recover the PIN.
-    const encPin = localStorage.getItem(VAULT_WA_PIN_KEY);
-    if (!encPin) {
-      if (errorEl) errorEl.textContent = "Biometric data not found. Please use your PIN.";
-      return;
-    }
-    const sessPinB64 = _decryptText(encPin, credIdB64);
-    if (!sessPinB64) {
-      if (errorEl) errorEl.textContent = "Could not recover credentials. Please use your PIN.";
-      return;
-    }
-    const pin = _vaultDecodeSession(sessPinB64);
-    if (!pin) {
-      if (errorEl) errorEl.textContent = "Could not decode credentials. Please use your PIN.";
-      return;
-    }
-    if (vaultUnlock(pin)) {
-      _showVaultContentUI();
-    } else {
-      if (errorEl) errorEl.textContent = "Biometric key is invalid. Please use your PIN.";
-    }
-  } catch (err) {
-    if (err.name !== "NotAllowedError") {
-      console.error("WebAuthn auth failed:", err);
-      if (errorEl) errorEl.textContent = "Biometric authentication failed. Please use your PIN.";
-    }
-  }
-}
-
-/* Vault */
-function addCode() {
-  const input = document.getElementById("codeInput");
-  if (!input || !vaultIsUnlocked()) return;
-
-  const value = input.value.trim();
-  if (!value) return;
-
-  console.log("[Vault] addCode: encrypt PIN present:", _vaultPin !== null);
-
-  const items = getStoredData("bryantos_codes", []);
-  items.unshift({
-    id: Date.now(),
-    folder: getCurrentFolder(),
-    text: _encryptText(value, _vaultPin)
-  });
-
-  setStoredData("bryantos_codes", items);
-  input.value = "";
-  renderCodes();
-}
-
-function deleteCode(id) {
-  const items = getStoredData("bryantos_codes", []).filter(item => item.id !== id);
-  setStoredData("bryantos_codes", items);
-  renderCodes();
-}
-
-function renderCodes() {
-  const list = document.getElementById("codeList");
-  const isUnlocked = vaultIsUnlocked();
-  console.log("[Vault] renderCodes called, unlocked:", isUnlocked, "_vaultPin present:", _vaultPin !== null);
-
-  if (!list) return;
-
-  if (!isUnlocked) {
-    console.log("[Vault] renderCodes: vault is locked — clearing list, no values rendered");
-    list.innerHTML = "";
-    return;
-  }
-
-  const items = getFilteredItems("bryantos_codes");
-  list.innerHTML = "";
-
-  items.forEach(item => {
-    console.log("[Vault] decrypt PIN present:", _vaultPin !== null);
-    let decrypted = _decryptText(item.text, _vaultPin);
-    // If the first decrypt returns something that still looks like ciphertext,
-    // the item was double-encrypted — decrypt again to recover the plaintext.
-    if (decrypted && _isLikelyCiphertext(decrypted)) {
-      console.log("[Vault] item appears double-encrypted — running second decrypt pass, item id:", item.id);
-      const secondPass = _decryptText(decrypted, _vaultPin);
-      if (secondPass && secondPass.trim()) {
-        decrypted = secondPass;
-      }
-    }
-    const displayed = (decrypted && decrypted.trim() !== "") ? decrypted : "Unable to decrypt";
-    if (displayed === "Unable to decrypt") {
-      console.warn("[Vault] item decryption failed — showing placeholder, item id:", item.id);
-    } else {
-      console.log("[Vault] item rendered as decrypted");
-    }
-    const li = document.createElement("li");
-    li.className = "list-item";
-    li.innerHTML = `
-      <span>${escapeHtml(displayed)}</span>
-      <div class="list-actions">
-        <select onchange="moveItem('bryantos_codes', ${item.id}, this.value)">
-          ${buildFolderOptions(item.folder)}
-        </select>
-        <button onclick="deleteCode(${item.id})">Delete</button>
-      </div>
-    `;
-    list.appendChild(li);
-  });
-
-  runSearch();
-}
-
-/* Calendar */
-function addEvent() {
-  const dateInput = document.getElementById("dateInput");
-  const eventInput = document.getElementById("eventInput");
-  if (!dateInput || !eventInput) return;
-
-  const date = dateInput.value;
-  const text = eventInput.value.trim();
-  if (!date || !text) return;
-
-  const items = getStoredData("bryantos_events", []);
-  items.unshift({
-    id: Date.now(),
-    folder: getCurrentFolder(),
-    date,
-    text
-  });
-
-  setStoredData("bryantos_events", items);
-  dateInput.value = "";
-  eventInput.value = "";
-  renderEvents();
-}
-
-function deleteEvent(id) {
-  const items = getStoredData("bryantos_events", []).filter(item => item.id !== id);
-  setStoredData("bryantos_events", items);
-  renderEvents();
-}
-
-function renderEvents() {
-  const list = document.getElementById("eventList");
-  if (!list) return;
-
-  const items = getFilteredItems("bryantos_events");
-  list.innerHTML = "";
-
-  items.forEach(item => {
-    const li = document.createElement("li");
-    li.className = "list-item";
-    li.innerHTML = `
-      <span><strong>${escapeHtml(item.date)}</strong> - ${escapeHtml(item.text)}</span>
-      <div class="list-actions">
-        <select onchange="moveItem('bryantos_events', ${item.id}, this.value)">
-          ${buildFolderOptions(item.folder)}
-        </select>
-        <button onclick="deleteEvent(${item.id})">Delete</button>
-      </div>
-    `;
-    list.appendChild(li);
-  });
-
-  runSearch();
-}
-
-/* Contacts */
-function addContact() {
-  const nameInput = document.getElementById("contactName");
-  const numberInput = document.getElementById("contactNumber");
-  if (!nameInput || !numberInput) return;
-
-  const name = nameInput.value.trim();
-  const number = numberInput.value.trim();
-  if (!name || !number) return;
-
-  const items = getStoredData("bryantos_contacts", []);
-  items.unshift({
-    id: Date.now(),
-    folder: getCurrentFolder(),
-    name,
-    number
-  });
-
-  setStoredData("bryantos_contacts", items);
-  nameInput.value = "";
-  numberInput.value = "";
-  renderContacts();
-}
-
-function deleteContact(id) {
-  const items = getStoredData("bryantos_contacts", []).filter(item => item.id !== id);
-  setStoredData("bryantos_contacts", items);
-  renderContacts();
-}
-
-function renderContacts() {
-  const list = document.getElementById("contactList");
-  if (!list) return;
-
-  const items = getFilteredItems("bryantos_contacts");
-  list.innerHTML = "";
-
-  items.forEach(item => {
-    const li = document.createElement("li");
-    li.className = "list-item";
-    li.innerHTML = `
-      <span>
-        <strong>${escapeHtml(item.name)}</strong> -
-        <a href="tel:${escapeAttribute(item.number)}">${escapeHtml(item.number)}</a>
-      </span>
-      <div class="list-actions">
-        <select onchange="moveItem('bryantos_contacts', ${item.id}, this.value)">
-          ${buildFolderOptions(item.folder)}
-        </select>
-        <button onclick="deleteContact(${item.id})">Delete</button>
-      </div>
-    `;
-    list.appendChild(li);
-  });
-
-  runSearch();
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function escapeAttribute(value) {
-  return String(value).replaceAll('"', "&quot;");
-}
-
-document.addEventListener("DOMContentLoaded", function() {
-  const auth = firebase.auth();
-
-  auth.onAuthStateChanged(async function(user) {
-    if (!user) {
-      _db       = null;
-      _storage  = null;
-      _uid      = null;
-      window.location.href = "signin.html";
-      return;
-    }
-
-    console.log("Auth signed in:", user.uid);
-    _db       = firebase.firestore();
-    _storage  = firebase.storage();
-    _uid      = user.uid;
-
-    // Pull latest data from Firestore into localStorage, then render
-    await loadFromFirestore();
-    await loadPhotos();
-    refreshFolderState();
-    await syncToFirestore();
-
-    // ── Vault state debug log ──────────────────────────────────────────────────
-    const _sessRaw = sessionStorage.getItem("vault_sess");
-    console.log("[Vault] Page load — vaultHasPin:", vaultHasPin(),
-      "sessionStorage vault_sess:", _sessRaw ? "present" : "absent",
-      "_vaultPin present:", _vaultPin !== null);
-
-    // Restore vault PIN from session so items render without re-entering PIN.
-    if (_sessRaw && vaultHasPin()) {
-      try {
-        const _restoredPin = _vaultDecodeSession(_sessRaw);
-        if (!_restoredPin) {
-          console.warn("[Vault] Session PIN decode failed — session data malformed");
-        } else if (_vaultHashPin(_restoredPin) === localStorage.getItem(VAULT_PIN_HASH_KEY)) {
-          _vaultPin = _restoredPin;
-          console.log("[Vault] Session PIN restored successfully — _vaultPin present:", _vaultPin !== null);
-        } else {
-          console.warn("[Vault] Session PIN hash mismatch — PIN not restored");
-        }
+        const isPdf = file.type === "application/pdf";
+        const blob = isPdf ? file : await shrinkImage(file);
+        await store.uploadPhoto(blob, { name: file.name, folder, album: S.album || "", type: isPdf ? "application/pdf" : blob.type });
+        ok++;
       } catch (e) {
-        console.warn("[Vault] Failed to restore session PIN:", e.message);
+        console.error(e);
       }
-    } else {
-      console.log("[Vault] Session PIN NOT restored —",
-        _sessRaw ? "no stored hash (vaultHasPin=false)" : "no session PIN in sessionStorage");
     }
+    toast(ok === files.length ? `Uploaded to ${folder}` : `${files.length - ok} upload${files.length - ok === 1 ? "" : "s"} failed`);
+    if (S.section !== "photos") go("photos");
+  }
 
-    renderFolderDropdown();
-    updateFolderLabels();
-    applyFolderColor();
-    loadNotes();
-    renderAlbumFilter();
-    renderMail();
-    renderMoney();
-    renderBills();
-    renderLinks();
-    renderCodes();
-    renderEvents();
-    renderContacts();
-    runSearch();
+  function shrinkImage(file) {
+    return new Promise((resolve) => {
+      if (!/^image\/(jpeg|png|webp|heic|heif)$/i.test(file.type)) { resolve(file); return; }
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const max = 2400;
+        let w = img.naturalWidth, hgt = img.naturalHeight;
+        if (w <= max && hgt <= max && file.size < 1.5e6) { URL.revokeObjectURL(url); resolve(file); return; }
+        const scale = Math.min(1, max / Math.max(w, hgt));
+        w = Math.round(w * scale); hgt = Math.round(hgt * scale);
+        const c = document.createElement("canvas");
+        c.width = w; c.height = hgt;
+        c.getContext("2d").drawImage(img, 0, 0, w, hgt);
+        URL.revokeObjectURL(url);
+        c.toBlob((b) => resolve(b || file), "image/jpeg", 0.85);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+      img.src = url;
+    });
+  }
 
-    // If the vault section is active and the PIN was restored from the session,
-    // show vault content immediately (fixes the async-load race condition where
-    // the user navigated to the vault section before this callback completed).
-    if (_vaultPin) {
-      const codesSection = document.getElementById("codes");
-      if (codesSection && codesSection.classList.contains("active")) {
-        console.log("[Vault] Vault section active on load with restored PIN — showing content");
-        _showVaultContentUI();
+  function renameFolderEverywhere(from, to) {
+    const patch = {};
+    [K.notes, K.links, K.mail, K.money, K.bills, K.events, K.contacts, K.vaultItems].forEach((k) => {
+      const l = list(k);
+      if (l.some((i) => i.folder === from)) patch[k] = l.map((i) => (i.folder === from ? { ...i, folder: to } : i));
+    });
+    const albums = S.data[K.albums] && typeof S.data[K.albums] === "object" ? { ...S.data[K.albums] } : null;
+    if (albums && albums[from]) {
+      albums[to] = Array.from(new Set([].concat(albums[to] || [], albums[from])));
+      delete albums[from];
+      patch[K.albums] = albums;
+    }
+    S.photos.filter((p) => p.folder === from).forEach((p) => store.updatePhoto(p.docId, { folder: to }));
+    S.vaultItems = S.vaultItems.map((v) => (v.folder === from ? { ...v, folder: to } : v));
+    return patch;
+  }
+
+  function countInFolder(f) {
+    let n = 0;
+    [K.notes, K.links, K.mail, K.money, K.bills, K.events, K.contacts, K.vaultItems].forEach((k) => { n += list(k).filter((i) => i.folder === f).length; });
+    return n + S.photos.filter((p) => p.folder === f).length;
+  }
+
+  /* ── Events ────────────────────────────────────────────────────────── */
+
+  document.addEventListener("click", (e) => {
+    const el = e.target.closest("[data-act]");
+    if (!el || el.matches("input[type=checkbox]")) return;
+    const act = el.dataset.act;
+    const id = el.dataset.id;
+    const findById = (k) => list(k).find((i) => String(i.id) === String(id));
+
+    switch (act) {
+      case "go": go(el.dataset.sec, el.dataset.tab); break;
+      case "folder": S.folder = el.dataset.folder; S.album = ""; refresh(); break;
+      case "new":
+        go("home");
+        setTimeout(() => { const q = $("#quick"); if (q) q.focus(); }, 0);
+        break;
+      case "del": {
+        const k = el.dataset.key;
+        if (!confirm("Delete this? It can't be undone.")) return;
+        save(k, list(k).filter((i) => String(i.id) !== String(id)));
+        break;
+      }
+      case "note-edit": S.noteEdit = id; refresh(); { const t = $(`#edit-${CSS.escape(id)}`); if (t) t.focus(); } break;
+      case "note-cancel": S.noteEdit = null; refresh(); break;
+      case "copy-text": copySecret(el.dataset.text, null); break;
+      case "photo-del": {
+        const p = S.photos.find((x) => x.docId === id);
+        if (p && confirm(`Delete “${p.name}”? It can't be undone.`)) store.deletePhoto(p).catch(() => toast("Delete failed"));
+        break;
+      }
+      case "more-tab":
+        S.moreTab = el.dataset.tab;
+        $("[data-more-form]").innerHTML = moreFormHtml();
+        refresh();
+        break;
+      case "bill-paid":
+        save(K.bills, list(K.bills).map((b) => (String(b.id) === String(id) ? { ...b, paid: !b.paid } : b)));
+        break;
+      case "folder-rename": {
+        const from = el.dataset.folder;
+        const to = (prompt(`New name for “${from}”:`, from) || "").trim();
+        if (!to || to === from) return;
+        if (folders().some((f) => f.toLowerCase() === to.toLowerCase())) { toast("A folder with that name already exists."); return; }
+        const patch = renameFolderEverywhere(from, to);
+        patch[K.folders] = folders().map((f) => (f === from ? to : f));
+        if (S.folder === from) S.folder = to;
+        saveMany(patch);
+        break;
+      }
+      case "folder-del": {
+        const f = el.dataset.folder;
+        const rest = folders().filter((x) => x !== f);
+        if (!rest.length) { toast("You need at least one folder."); return; }
+        const n = countInFolder(f);
+        if (!confirm(n ? `Delete the folder “${f}”? Its ${n} item${n === 1 ? "" : "s"} will move to “${rest[0]}” — nothing is deleted.` : `Delete the empty folder “${f}”?`)) return;
+        const patch = renameFolderEverywhere(f, rest[0]);
+        patch[K.folders] = rest;
+        if (S.folder === f) S.folder = "All";
+        saveMany(patch);
+        break;
+      }
+      case "signout":
+        if (DEMO) { toast("Demo mode"); return; }
+        lockVault();
+        firebase.auth().signOut().then(() => { location.href = "signin.html"; });
+        break;
+
+      case "vault-lock": lockVault(); break;
+      case "bio-unlock": bioUnlock(); break;
+      case "bio-add": bioAdd(); break;
+      case "bio-remove": {
+        if (!confirm("Remove Face ID / fingerprint unlock for this device? You can still use your passphrase.")) return;
+        const st = { ...S.data[K.vault], devices: { ...(S.data[K.vault].devices || {}) } };
+        delete st.devices[id];
+        save(K.vault, st).then(renderSection);
+        break;
+      }
+      case "vault-new": S.vaultForm = "new"; renderVaultForm(); break;
+      case "vault-edit": S.vaultForm = Number(id); renderVaultForm(); break;
+      case "vault-cancel": S.vaultForm = null; S.vaultPrefill = ""; renderVaultForm(); break;
+      case "vault-show": S.shown[Number(id)] = !S.shown[Number(id)]; refresh(); break;
+      case "vault-copy": {
+        const v = S.vaultItems.find((x) => x.id === Number(id));
+        if (v && !v.error) copySecret(v.secret, v.id);
+        break;
+      }
+      case "vault-del": {
+        const v = S.vaultItems.find((x) => x.id === Number(id));
+        if (!v || !confirm(`Delete “${v.name}” from the Vault? It can't be undone.`)) return;
+        save(K.vaultItems, list(K.vaultItems).filter((x) => x.id !== v.id)).then(() => decryptVault().then(refresh));
+        S.vaultItems = S.vaultItems.filter((x) => x.id !== v.id);
+        refresh();
+        break;
       }
     }
   });
-});
+
+  document.addEventListener("change", (e) => {
+    const el = e.target;
+    if (el.matches("[data-upload]")) { uploadFiles(el.files); el.value = ""; return; }
+    if (el.matches("[data-act=vault-peek]")) { const s = $("#vf-secret"); if (s) s.type = el.checked ? "text" : "password"; return; }
+    const kind = el.dataset.change;
+    if (kind === "move") {
+      const k = el.dataset.key;
+      save(k, list(k).map((i) => (String(i.id) === String(el.dataset.id) ? { ...i, folder: el.value } : i)));
+      toast("Moved to " + el.value);
+    } else if (kind === "photo-folder") {
+      store.updatePhoto(el.dataset.id, { folder: el.value }).then(() => toast("Moved to " + el.value));
+    } else if (kind === "album") {
+      S.album = el.value;
+      refresh();
+    }
+  });
+
+  document.addEventListener("submit", (e) => {
+    const form = e.target.closest("[data-form]");
+    if (!form) return;
+    e.preventDefault();
+    const f = form.elements;
+    switch (form.dataset.form) {
+      case "quick": {
+        const text = f.text.value.trim();
+        const as = e.submitter ? e.submitter.value : "note";
+        if (!text) { f.text.focus(); return; }
+        if (as === "note") { addItem(K.notes, { text, createdAt: new Date().toISOString() }); toast("Saved to Notes · " + targetFolder()); }
+        else if (as === "link") { addItem(K.links, { text }); toast("Saved to Links · " + targetFolder()); }
+        else if (as === "vault") {
+          S.vaultPrefill = text;
+          S.vaultForm = "new";
+          go("vault");
+          if (!S.vaultKey) toast("Unlock the Vault to finish saving");
+          return;
+        }
+        f.text.value = "";
+        break;
+      }
+      case "note-add": {
+        const text = f.text.value.trim();
+        if (!text) return;
+        addItem(K.notes, { text, createdAt: new Date().toISOString() });
+        f.text.value = "";
+        toast("Note saved");
+        break;
+      }
+      case "note-save": {
+        const text = f.text.value.trim();
+        const id = form.dataset.id;
+        S.noteEdit = null;
+        if (!text) { refresh(); return; }
+        save(K.notes, list(K.notes).map((n) => (String(n.id) === String(id) ? { ...n, text } : n)));
+        break;
+      }
+      case "link-add": {
+        let url = f.url.value.trim();
+        if (!url) { f.url.focus(); return; }
+        if (!isUrl(url) && !isEmail(url) && /^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(url)) url = "https://" + url;
+        addItem(K.links, { text: url, title: f.title.value.trim() });
+        f.url.value = ""; f.title.value = "";
+        toast("Link saved");
+        break;
+      }
+      case "album-add": {
+        const name = f.name.value.trim();
+        if (!name) return;
+        const folder = targetFolder();
+        const all = S.data[K.albums] && typeof S.data[K.albums] === "object" ? { ...S.data[K.albums] } : {};
+        const arr = Array.isArray(all[folder]) ? all[folder].slice() : [];
+        if (arr.some((a) => a.toLowerCase() === name.toLowerCase())) { toast("That album already exists"); return; }
+        arr.push(name);
+        all[folder] = arr;
+        S.album = name;
+        save(K.albums, all);
+        break;
+      }
+      case "more-add": {
+        const cfg = MORE[S.moreTab];
+        const item = {};
+        cfg.fields.forEach((fd) => { item[fd.name] = f[fd.name].value.trim(); });
+        if (!Object.values(item).some(Boolean)) return;
+        if (S.moreTab === "bills") item.paid = false;
+        addItem(cfg.key, item);
+        cfg.fields.forEach((fd) => { f[fd.name].value = ""; });
+        break;
+      }
+      case "folder-add": {
+        const name = f.name.value.trim();
+        if (!name) return;
+        if (folders().some((x) => x.toLowerCase() === name.toLowerCase())) { toast("That folder already exists"); return; }
+        save(K.folders, folders().concat(name));
+        f.name.value = "";
+        break;
+      }
+      case "vault-setup": vaultSetup(form); break;
+      case "vault-upgrade": vaultUpgrade(form); break;
+      case "vault-unlock": vaultUnlock(form); break;
+      case "vault-save": vaultSave(form); break;
+      case "change-pass": {
+        const pass = checkNewPass(form);
+        if (!pass) return;
+        busy(form, true, "Changing…");
+        window.Vault.changePassphrase(S.data[K.vault], S.vaultKey, pass)
+          .then((st) => save(K.vault, st))
+          .then(() => { toast("Passphrase changed"); renderSection(); })
+          .catch(() => { busy(form, false); formError(form, "Couldn't change it. Please try again."); });
+        break;
+      }
+    }
+  });
+
+  $("#search").addEventListener("input", (e) => {
+    const q = e.target.value.trim();
+    const was = !!S.query;
+    S.query = q;
+    if (!!q !== was) renderSection(); else refresh();
+  });
+
+  // Auto-lock
+  ["pointerdown", "keydown", "touchstart", "scroll"].forEach((ev) =>
+    document.addEventListener(ev, () => { S.lastActive = Date.now(); }, { passive: true })
+  );
+  setInterval(() => {
+    if (S.vaultKey && Date.now() - S.lastActive > AUTO_LOCK_MS) lockVault("Vault locked after 5 minutes");
+  }, 10000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) S.hiddenAt = Date.now();
+    else if (S.vaultKey && S.hiddenAt && Date.now() - S.hiddenAt > AUTO_LOCK_MS) lockVault("Vault locked after 5 minutes");
+  });
+
+  /* ── Start ─────────────────────────────────────────────────────────── */
+
+  function start(user) {
+    S.user = user;
+    $("#loading").hidden = true;
+    $("#app").hidden = false;
+    const name = user ? (user.displayName || user.email || "") : "Demo";
+    $("[data-user-name]").textContent = name;
+    $("[data-user-initial]").textContent = (name || "?").charAt(0).toUpperCase();
+    if (user && user.photoURL) {
+      const img = $("[data-user-photo]");
+      img.src = user.photoURL;
+      img.referrerPolicy = "no-referrer";
+      img.hidden = false;
+      $("[data-user-initial]").hidden = true;
+    }
+
+    let first = true;
+    store.subscribe((data) => {
+      S.data = data || {};
+      S.loaded = true;
+      if (first) { first = false; migrateOnce(); renderSection(); }
+      if (S.vaultKey) decryptVault().then(refresh); else refresh();
+    });
+    store.subscribePhotos((photos) => { S.photos = photos; refresh(); });
+  }
+
+  if (DEMO) {
+    store = demoStore();
+    start(null);
+  } else {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    firebase.firestore().enablePersistence({ synchronizeTabs: true }).catch(() => {});
+    firebase.auth().onAuthStateChanged((user) => {
+      if (!user) { location.href = "signin.html"; return; }
+      if (store) return;
+      store = firebaseStore(user.uid);
+      start(user);
+    });
+  }
+})();
